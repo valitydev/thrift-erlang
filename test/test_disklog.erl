@@ -31,13 +31,13 @@ disklog_test() ->
   {ok, ProtocolFactory} =
     thrift_binary_protocol:new_protocol_factory( TransportFactory, []),
   {ok, Proto} = ProtocolFactory(),
-  {ok, Client0} = thrift_client:new(Proto, thrift_test_thrift_test_thrift_test_service),
+  {ok, Client0} = thrift_client:new(Proto, {thrift_test_thrift_test_types, 'ThriftTest'}),
 
   io:format("Client started~n"),
 
   % We have to make oneway calls into this client only since otherwise it
   % will try to read from the disklog and go boom.
-  {Client1, {ok, ok}} = thrift_client:call(Client0, testOneway, [16#deadbeef]),
+  {Client1, {ok, ok}} = thrift_client:call(Client0, testOneway, [16#7eadbeef]),
   io:format("Call written~n"),
 
   % Use the send_call method to write a non-oneway call into the log
@@ -70,13 +70,13 @@ disklog_base64_test() ->
   {ok, ProtocolFactory} =
     thrift_binary_protocol:new_protocol_factory(BufFactory, []),
   {ok, Proto} = ProtocolFactory(),
-  {ok, Client0} = thrift_client:new(Proto, thrift_test_thrift_test_thrift_test_service),
+  {ok, Client0} = thrift_client:new(Proto, {thrift_test_thrift_test_types, 'ThriftTest'}),
 
   io:format("Client started~n"),
 
   % We have to make oneway calls into this client only since otherwise
   % it will try to read from the disklog and go boom.
-  {Client1, {ok, ok}} = thrift_client:call(Client0, testOneway, [16#deadbeef]),
+  {Client1, {ok, ok}} = thrift_client:call(Client0, testOneway, [16#7eadbeef]),
   io:format("Call written~n"),
 
   % Use the send_call method to write a non-oneway call into the log
