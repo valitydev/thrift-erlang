@@ -96,11 +96,12 @@ term_to_typeid({list, _}) -> ?tType_LIST.
 -spec read(#protocol{}, {struct, _Flavour, _StructDef}, atom()) -> {#protocol{}, {ok, tuple()}}.
 read(IProto0, {struct, union, StructDef}, _Tag)
   when is_list(StructDef) ->
-    {IProto1, RTuple} = read_union_loop(IProto0, enumerate(1, StructDef)),
+    {IProto1, ok} = read_frag(IProto0, struct_begin),
+    {IProto2, RTuple} = read_union_loop(IProto1, enumerate(1, StructDef)),
     case RTuple of
-      [{_, _} = Data] -> {IProto1, {ok, Data}};
-      [] ->              {IProto1, {ok, empty}};
-      [_ | _] ->         {IProto1, {ok, {multiple, RTuple}}}
+      [{_, _} = Data] -> {IProto2, {ok, Data}};
+      [] ->              {IProto2, {ok, empty}};
+      [_ | _] ->         {IProto2, {ok, {multiple, RTuple}}}
     end;
 read(IProto0, {struct, _, StructDef}, Tag)
   when is_list(StructDef), is_atom(Tag) ->
@@ -472,13 +473,14 @@ write_frag(Proto = #protocol{module = Module,
     {NewData, Result} = Module:write(ModuleData, Data),
     {Proto#protocol{data = NewData}, Result}.
 
-struct_write_loop(Proto0, [{Fid, _Req, Type, _Name, _Default} | RestStructDef], [Data | RestData]) ->
+struct_write_loop(Proto0, [{Fid, _Req, Type, Name, _Default} | RestStructDef], [Data | RestData]) ->
     NewProto = case Data of
                    undefined ->
                        Proto0; % null fields are skipped in response
                    _ ->
                        {Proto1, ok} = write_frag(Proto0,
                                            #protocol_field_begin{
+                                             name = Name,
                                              type = term_to_typeid(Type),
                                              id = Fid
                                             }),
