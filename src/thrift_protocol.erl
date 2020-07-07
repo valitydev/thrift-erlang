@@ -381,19 +381,23 @@ write(Proto, TypeData) ->
         Error -> {Proto, Error}
     end.
 
-write_safe(Proto, TypeData) ->
-    try {write_frag(Proto, TypeData), ok} catch
+write_safe(Proto, {Type, Data}) ->
+    try {write_frag(Proto, Type, Data), ok} catch
+        {?MODULE, ProtoError} -> ProtoError
+    end;
+write_safe(Proto, Data) ->
+    try {write_frag(Proto, Data), ok} catch
         {?MODULE, ProtoError} -> ProtoError
     end.
 
-write_frag(Proto0, {{struct, union, StructDef}, {Name, Value}}, StructName)
+write_frag(Proto0, {struct, union, StructDef}, {Name, Value}, StructName)
   when is_list(StructDef) ->
     Proto1 = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
     Proto2 = struct_write_loop(Proto1, [lists:keyfind(Name, 4, StructDef)], [Value]),
     Proto3 = write_frag(Proto2, struct_end),
     Proto3;
 
-write_frag(Proto0, {{struct, _, StructDef}, Data}, StructName)
+write_frag(Proto0, {struct, _, StructDef}, Data, StructName)
   when is_list(StructDef), is_tuple(Data), length(StructDef) == size(Data) - 1 ->
     [_ | Elems] = tuple_to_list(Data),
     Proto1 = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
@@ -402,11 +406,11 @@ write_frag(Proto0, {{struct, _, StructDef}, Data}, StructName)
     Proto3.
 
 %% thrift client specific stuff
-write_frag(Proto0, {{struct, union, StructDef}, {_Name, _Value}} = TypeData)
+write_frag(Proto0, {struct, union, StructDef} = Type, {_Name, _Value} = Data)
   when is_list(StructDef) ->
-    write_frag(Proto0, TypeData, undefined);
+    write_frag(Proto0, Type, Data, undefined);
 
-write_frag(Proto0, {{struct, _, StructDef}, Data})
+write_frag(Proto0, {struct, _, StructDef}, Data)
   when is_list(StructDef), is_tuple(Data), length(StructDef) == size(Data) - 1 ->
     [StructName | Elems] = tuple_to_list(Data),
     Proto1 = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
@@ -414,21 +418,21 @@ write_frag(Proto0, {{struct, _, StructDef}, Data})
     Proto3 = write_frag(Proto2, struct_end),
     Proto3;
 
-write_frag(Proto, {{struct, _, {Module, StructureName}}, Data})
+write_frag(Proto, {struct, _, {Module, StructureName}}, Data)
   when is_atom(Module),
        is_atom(StructureName) ->
-    write_frag(Proto, {Module:struct_info(StructureName), Data}, StructureName);
+    write_frag(Proto, Module:struct_info(StructureName), Data, StructureName);
 
-write_frag(Proto, {{enum, Fields}, Data}) when is_list(Fields), is_atom(Data) ->
+write_frag(Proto, {enum, Fields}, Data) when is_list(Fields), is_atom(Data) ->
     {Data, IVal} = lists:keyfind(Data, 1, Fields),
     write_frag(Proto, {i32, IVal});
 
-write_frag(Proto, {{enum, {Module, EnumName}}, Data})
+write_frag(Proto, {enum, {Module, EnumName}}, Data)
   when is_atom(Module),
        is_atom(EnumName) ->
-    write_frag(Proto, {Module:enum_info(EnumName), Data});
+    write_frag(Proto, Module:enum_info(EnumName), Data);
 
-write_frag(Proto0, {{list, Type}, Data})
+write_frag(Proto0, {list, Type}, Data)
   when is_list(Data) ->
     Proto1 = write_frag(Proto0,
                #protocol_list_begin{
@@ -436,14 +440,14 @@ write_frag(Proto0, {{list, Type}, Data})
                  size = length(Data)
                 }),
     Proto2 = lists:foldl(fun(Elem, ProtoIn) ->
-                            write_frag(ProtoIn, {Type, Elem})
+                            write_frag(ProtoIn, Type, Elem)
                          end,
                          Proto1,
                          Data),
     Proto3 = write_frag(Proto2, list_end),
     Proto3;
 
-write_frag(Proto0, {{map, KeyType, ValType}, Data}) ->
+write_frag(Proto0, {map, KeyType, ValType}, Data) ->
     Proto1 = write_frag(Proto0,
                          #protocol_map_begin{
                            ktype = term_to_typeid(KeyType),
@@ -451,8 +455,8 @@ write_frag(Proto0, {{map, KeyType, ValType}, Data}) ->
                            size  = map_size(Data)
                           }),
     Proto2 = maps:fold(fun(KeyData, ValData, ProtoS0) ->
-                               ProtoS1 = write_frag(ProtoS0, {KeyType, KeyData}),
-                               ProtoS2 = write_frag(ProtoS1, {ValType, ValData}),
+                               ProtoS1 = write_frag(ProtoS0, KeyType, KeyData),
+                               ProtoS2 = write_frag(ProtoS1, ValType, ValData),
                                ProtoS2
                        end,
                        Proto1,
@@ -460,19 +464,22 @@ write_frag(Proto0, {{map, KeyType, ValType}, Data}) ->
     Proto3 = write_frag(Proto2, map_end),
     Proto3;
 
-write_frag(Proto0, {{set, Type}, Data}) ->
+write_frag(Proto0, {set, Type}, Data) ->
     Proto1 = write_frag(Proto0,
                          #protocol_set_begin{
                            etype = term_to_typeid(Type),
                            size  = ordsets:size(Data)
                           }),
     Proto2 = ordsets:fold(fun(Elem, ProtoIn) ->
-                            write_frag(ProtoIn, {Type, Elem})
+                            write_frag(ProtoIn, Type, Elem)
                        end,
                        Proto1,
                        Data),
     Proto3 = write_frag(Proto2, set_end),
     Proto3;
+
+write_frag(Proto0, Type, Data) ->
+    write_frag(Proto0, {Type, Data}).
 
 write_frag(Proto = #protocol{module = Module,
                         data = ModuleData}, Data) ->
@@ -496,7 +503,7 @@ struct_write_loop(Proto0, [{Fid, _Req, Type, Name, _Default} | RestStructDef], [
                                              type = term_to_typeid(Type),
                                              id = Fid
                                             }),
-                       Proto2 = write_frag(Proto1, {Type, Data}),
+                       Proto2 = write_frag(Proto1, Type, Data),
                        Proto3 = write_frag(Proto2, field_end),
                        Proto3
                end,
