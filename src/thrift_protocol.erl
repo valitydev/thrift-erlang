@@ -392,16 +392,23 @@ write_safe(Proto, Data) ->
 
 write_frag(Proto0, {struct, union, StructDef}, {Name, Value}, StructName)
   when is_list(StructDef) ->
+    {Fid, _Req, Type, Name, _Default} = lists:keyfind(Name, 4, StructDef),
     Proto1 = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
-    Proto2 = struct_write_loop(Proto1, [lists:keyfind(Name, 4, StructDef)], [Value]),
-    Proto3 = write_frag(Proto2, struct_end),
-    Proto3;
+    Proto2 = write_frag(Proto1, #protocol_field_begin{
+                                    name = Name,
+                                    type = term_to_typeid(Type),
+                                    id = Fid
+                                }),
+    Proto3 = write_frag(Proto2, Type, Value),
+    Proto4 = write_frag(Proto3, field_end),
+    Proto5 = write_frag(Proto4, field_stop),
+    Proto6 = write_frag(Proto5, struct_end),
+    Proto6;
 
 write_frag(Proto0, {struct, _, StructDef}, Data, StructName)
   when is_list(StructDef), is_tuple(Data) ->
-    [_ | Elems] = tuple_to_list(Data),
     Proto1 = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
-    Proto2 = struct_write_loop(Proto1, StructDef, Elems),
+    Proto2 = struct_write_loop(Proto1, StructDef, Data, 2),
     Proto3 = write_frag(Proto2, struct_end),
     Proto3.
 
@@ -412,9 +419,8 @@ write_frag(Proto0, {struct, union, StructDef} = Type, {_Name, _Value} = Data)
 
 write_frag(Proto0, {struct, _, StructDef}, Data)
   when is_list(StructDef), is_tuple(Data) ->
-    [StructName | Elems] = tuple_to_list(Data),
-    Proto1 = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
-    Proto2 = struct_write_loop(Proto1, StructDef, Elems),
+    Proto1 = write_frag(Proto0, #protocol_struct_begin{name = element(1, Data)}),
+    Proto2 = struct_write_loop(Proto1, StructDef, Data, 2),
     Proto3 = write_frag(Proto2, struct_end),
     Proto3;
 
@@ -492,7 +498,8 @@ write_frag(Proto = #protocol{module = Module,
             throw({?MODULE, {NewProto, Error}})
     end.
 
-struct_write_loop(Proto0, [{Fid, _Req, Type, Name, _Default} | RestStructDef], [Data | RestData]) ->
+struct_write_loop(Proto0, [{Fid, _Req, Type, Name, _Default} | RestStructDef], Struct, Idx) ->
+    Data = element(Idx, Struct),
     NewProto = case Data of
                    undefined ->
                        Proto0; % null fields are skipped in response
@@ -507,8 +514,8 @@ struct_write_loop(Proto0, [{Fid, _Req, Type, Name, _Default} | RestStructDef], [
                        Proto3 = write_frag(Proto2, field_end),
                        Proto3
                end,
-    struct_write_loop(NewProto, RestStructDef, RestData);
-struct_write_loop(Proto, [], []) ->
+    struct_write_loop(NewProto, RestStructDef, Struct, Idx + 1);
+struct_write_loop(Proto, [], _, _) ->
     write_frag(Proto, field_stop).
 
 -spec validate(tprot_header_val() | tprot_header_tag() | tprot_empty_tag() | field_stop | TypeData) ->
