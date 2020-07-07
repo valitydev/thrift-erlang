@@ -538,81 +538,82 @@ validate(list_end) -> ok;
 validate(set_end) -> ok;
 validate(map_end) -> ok;
 
-validate(TypeData) ->
-    try validate(TypeData, []) catch
+validate({Type, Data}) ->
+    try validate(required, Type, Data, []) catch
         throw:{invalid, Path, _Type, Value} ->
             {error, {invalid, lists:reverse(Path), Value}}
     end.
 
-validate(TypeData, Path) ->
-    validate(required, TypeData, Path).
-
-validate(Req, {_Type, undefined}, _Path)
+validate(Req, _Type, undefined, _Path)
   when Req =:= optional orelse Req =:= undefined ->
     ok;
-validate(_Req, {{list, Type}, Data}, Path)
+validate(_Req, {list, Type}, Data, Path)
   when is_list(Data) ->
-    lists:foreach(fun (E) -> validate({Type, E}, Path) end, Data);
-validate(_Req, {{set, Type}, Data}, Path)
+    lists:foreach(fun (E) -> validate(required, Type, E, Path) end, Data);
+validate(_Req, {set, Type}, Data, Path)
   when is_list(Data) ->
-    lists:foreach(fun (E) -> validate({Type, E}, Path) end, (ordsets:to_list(Data)));
-validate(_Req, {{map, KType, VType}, Data}, Path)
+    lists:foreach(fun (E) -> validate(required, Type, E, Path) end, ordsets:to_list(Data));
+validate(_Req, {map, KType, VType}, Data, Path)
   when is_map(Data) ->
-    maps:fold(fun (K, V, _) -> validate({KType, K}, Path), validate({VType, V}, Path), ok end, ok, Data);
-validate(Req, {{struct, union, {Mod, Name}}, Data = {_, _}}, Path) ->
-    validate(Req, {Mod:struct_info(Name), Data}, Path);
-validate(_Req, {{struct, union, StructDef} = Type, Data = {Name, Value}}, Path)
+    maps:fold(fun (K, V, _) ->
+        validate(required, KType, K, Path),
+        validate(required, VType, V, Path),
+        ok
+    end, ok, Data);
+validate(Req, {struct, union, {Mod, Name}}, Data = {_, _}, Path) ->
+    validate(Req, Mod:struct_info(Name), Data, Path);
+validate(_Req, {struct, union, StructDef} = Type, Data = {Name, Value}, Path)
   when is_list(StructDef) andalso is_atom(Name) ->
     case lists:keyfind(Name, 4, StructDef) of
         {_, _, SubType, Name, _Default} ->
-            validate(required, {SubType, Value}, [Name | Path]);
+            validate(required, SubType, Value, [Name | Path]);
         false ->
             throw({invalid, Path, Type, Data})
     end;
-validate(Req, {{struct, _Flavour, {Mod, Name} = Type}, Data}, Path)
+validate(Req, {struct, _Flavour, {Mod, Name} = Type}, Data, Path)
   when is_tuple(Data) ->
     try Mod:record_name(Name) of
       RName when RName =:= element(1, Data) ->
-        validate(Req, {Mod:struct_info(Name), Data}, Path);
+        validate(Req, Mod:struct_info(Name), Data, Path);
       _ ->
         throw({invalid, Path, Type, Data})
     catch error:badarg ->
         throw({invalid, Path, Type, Data})
     end;
-validate(_Req, {{struct, _Flavour, StructDef}, Data}, Path)
+validate(_Req, {struct, _Flavour, StructDef}, Data, Path)
   when is_list(StructDef) andalso tuple_size(Data) =:= length(StructDef) + 1 ->
     validate_struct_fields(StructDef, Data, 2, Path);
-validate(_Req, {{struct, _Flavour, StructDef}, Data}, Path)
+validate(_Req, {struct, _Flavour, StructDef}, Data, Path)
   when is_list(StructDef) andalso tuple_size(Data) =:= length(StructDef) ->
     validate_struct_fields(StructDef, Data, 1, Path);
-validate(_Req, {{enum, _Fields}, Value}, _Path) when is_atom(Value), Value =/= undefined ->
+validate(_Req, {enum, _Fields}, Value, _Path) when is_atom(Value), Value =/= undefined ->
     ok;
-validate(_Req, {string, Value}, _Path) when is_binary(Value) ->
+validate(_Req, string, Value, _Path) when is_binary(Value) ->
     ok;
-validate(_Req, {bool, Value}, _Path) when is_boolean(Value) ->
+validate(_Req, bool, Value, _Path) when is_boolean(Value) ->
     ok;
-validate(_Req, {byte, Value}, _Path)
+validate(_Req, byte, Value, _Path)
   when is_integer(Value), Value >= -(1 bsl 7), Value < (1 bsl 7) ->
     ok;
-validate(_Req, {i8,  Value}, _Path)
+validate(_Req, i8,  Value, _Path)
   when is_integer(Value), Value >= -(1 bsl 7), Value < (1 bsl 7) ->
     ok;
-validate(_Req, {i16, Value}, _Path)
+validate(_Req, i16, Value, _Path)
   when is_integer(Value), Value >= -(1 bsl 15), Value < (1 bsl 15) ->
     ok;
-validate(_Req, {i32, Value}, _Path)
+validate(_Req, i32, Value, _Path)
   when is_integer(Value), Value >= -(1 bsl 31), Value < (1 bsl 31) ->
     ok;
-validate(_Req, {i64, Value}, _Path)
+validate(_Req, i64, Value, _Path)
   when is_integer(Value), Value >= -(1 bsl 63), Value < (1 bsl 63) ->
     ok;
-validate(_Req, {double, Value}, _Path) when is_float(Value) ->
+validate(_Req, double, Value, _Path) when is_float(Value) ->
     ok;
-validate(_Req, {Type, Value}, Path) ->
+validate(_Req, Type, Value, Path) ->
     throw({invalid, Path, Type, Value}).
 
 validate_struct_fields([{_, Req, Type, Name, _} | Types], Data, Idx, Path) ->
-    _ = validate(Req, {Type, element(Idx, Data)}, [Name | Path]),
+    _ = validate(Req, Type, element(Idx, Data), [Name | Path]),
     validate_struct_fields(Types, Data, Idx + 1, Path);
 validate_struct_fields([], _Data, _Idx, _Path) ->
     ok.
