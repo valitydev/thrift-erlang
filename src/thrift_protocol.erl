@@ -581,11 +581,10 @@ validate(Req, {{struct, _Flavour, {Mod, Name} = Type}, Data}, Path)
     end;
 validate(_Req, {{struct, _Flavour, StructDef}, Data}, Path)
   when is_list(StructDef) andalso tuple_size(Data) =:= length(StructDef) + 1 ->
-    [_ | Elems] = tuple_to_list(Data),
-    validate_struct_fields(StructDef, Elems, Path);
+    validate_struct_fields(StructDef, Data, 2, Path);
 validate(_Req, {{struct, _Flavour, StructDef}, Data}, Path)
   when is_list(StructDef) andalso tuple_size(Data) =:= length(StructDef) ->
-    validate_struct_fields(StructDef, tuple_to_list(Data), Path);
+    validate_struct_fields(StructDef, Data, 1, Path);
 validate(_Req, {{enum, _Fields}, Value}, _Path) when is_atom(Value), Value =/= undefined ->
     ok;
 validate(_Req, {string, Value}, _Path) when is_binary(Value) ->
@@ -612,10 +611,8 @@ validate(_Req, {double, Value}, _Path) when is_float(Value) ->
 validate(_Req, {Type, Value}, Path) ->
     throw({invalid, Path, Type, Value}).
 
-validate_struct_fields(Types, Elems, Path) ->
-    lists:foreach(
-        fun ({{_, Req, Type, Name, _}, Data}) ->
-            validate(Req, {Type, Data}, [Name | Path])
-        end,
-        lists:zip(Types, Elems)
-    ).
+validate_struct_fields([{_, Req, Type, Name, _} | Types], Data, Idx, Path) ->
+    _ = validate(Req, {Type, element(Idx, Data)}, [Name | Path]),
+    validate_struct_fields(Types, Data, Idx + 1, Path);
+validate_struct_fields([], _Data, _Idx, _Path) ->
+    ok.
