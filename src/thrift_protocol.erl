@@ -398,7 +398,7 @@ write_frag(Proto0, {struct, union, StructDef}, {Name, Value}, StructName)
     Proto3;
 
 write_frag(Proto0, {struct, _, StructDef}, Data, StructName)
-  when is_list(StructDef), is_tuple(Data), length(StructDef) == size(Data) - 1 ->
+  when is_list(StructDef), is_tuple(Data) ->
     [_ | Elems] = tuple_to_list(Data),
     Proto1 = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
     Proto2 = struct_write_loop(Proto1, StructDef, Elems),
@@ -411,7 +411,7 @@ write_frag(Proto0, {struct, union, StructDef} = Type, {_Name, _Value} = Data)
     write_frag(Proto0, Type, Data, undefined);
 
 write_frag(Proto0, {struct, _, StructDef}, Data)
-  when is_list(StructDef), is_tuple(Data), length(StructDef) == size(Data) - 1 ->
+  when is_list(StructDef), is_tuple(Data) ->
     [StructName | Elems] = tuple_to_list(Data),
     Proto1 = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
     Proto2 = struct_write_loop(Proto1, StructDef, Elems),
