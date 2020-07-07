@@ -457,7 +457,6 @@ write_frag(Proto0, {{map, KeyType, ValType}, Data}) ->
     {Proto3, ok};
 
 write_frag(Proto0, {{set, Type}, Data}) ->
-    true = ordsets:is_set(Data),
     {Proto1, ok} = write_frag(Proto0,
                          #protocol_set_begin{
                            etype = term_to_typeid(Type),
