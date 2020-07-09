@@ -50,7 +50,7 @@ new(Buf) ->
 close(Proto) ->
     Proto.
 
-typeid_to_atom(?tType_STOP) -> field_stop;
+% typeid_to_atom(?tType_STOP) -> field_stop;
 typeid_to_atom(?tType_VOID) -> void;
 typeid_to_atom(?tType_BOOL) -> bool;
 typeid_to_atom(?tType_DOUBLE) -> double;
