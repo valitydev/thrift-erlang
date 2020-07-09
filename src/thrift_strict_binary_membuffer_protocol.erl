@@ -111,6 +111,8 @@ construct_default_struct(Tag, StructDef) ->
 
 fill_default_struct(_N, [], Record) ->
     Record;
+fill_default_struct(N, [{_Fid, _Req, _Type, _Name, undefined} | Rest], Record) ->
+    fill_default_struct(N + 1, Rest, Record);
 fill_default_struct(N, [{_Fid, _Req, _Type, _Name, Default} | Rest], Record) ->
     fill_default_struct(N + 1, Rest, erlang:setelement(N, Record, Default)).
 
