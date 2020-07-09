@@ -25,7 +25,6 @@
          new/1,
          write/2,
          read/2,
-         read/3,
          skip/2,
          validate/1,
          close/1
@@ -79,26 +78,25 @@ term_to_typeid({map, _, _}) -> ?tType_MAP;
 term_to_typeid({set, _}) -> ?tType_SET;
 term_to_typeid({list, _}) -> ?tType_LIST.
 
-read_union(IProto0, StructDef) ->
+read_union(IProto0, StructDef, Path) ->
     % {IProto1, ok} = read_frag(IProto0, struct_begin),
-    {IProto1, RTuple} = read_union_loop(IProto0, StructDef),
-    case RTuple of
+    {IProto1, Result} = read_union_loop(IProto0, StructDef, undefined, Path),
+    case Result of
       {_, _} ->
-          {IProto1, RTuple};
+          {IProto1, Result};
       _ ->
-        %   throw({invalid, Path, RTuple})
-          throw({invalid, RTuple})
+          throw({invalid, Path, Result})
     end.
 
-read_struct(IProto0, StructDef, undefined) ->
+read_struct(IProto0, StructDef, undefined, Path) ->
     Tuple = erlang:make_tuple(length(StructDef), undefined),
-    read_struct_loop(IProto0, StructDef, 1, Tuple);
-read_struct(IProto0, StructDef, Tag) ->
+    read_struct_loop(IProto0, StructDef, 1, Tuple, Path);
+read_struct(IProto0, StructDef, Tag, Path) ->
     % If we want a tagged tuple, we need to offset all the tuple indices
     % by 1 to avoid overwriting the tag.
     Tuple = erlang:make_tuple(length(StructDef) + 1, undefined),
     Record = fill_default_struct(2, StructDef, erlang:setelement(1, Tuple, Tag)),
-    read_struct_loop(IProto0, StructDef, 2, Record).
+    read_struct_loop(IProto0, StructDef, 2, Record, Path).
 
 fill_default_struct(_N, [], Record) ->
     Record;
@@ -107,7 +105,6 @@ fill_default_struct(N, [{_Fid, _Req, _Type, _Name, undefined} | Rest], Record) -
 fill_default_struct(N, [{_Fid, _Req, _Type, _Name, Default} | Rest], Record) ->
     fill_default_struct(N + 1, Rest, erlang:setelement(N, Record, Default)).
 
-%% NOTE: Keep this in sync with thrift_protocol_behaviour:read
 -spec read
         (protocol(), {struct, _Flavour, _Info}) ->
             {ok, tuple(), protocol()} | {error, _Reason};
@@ -121,12 +118,9 @@ fill_default_struct(N, [{_Fid, _Req, _Type, _Name, Default} | Rest], Record) ->
             {ok, any(), protocol()} | {error, _Reason}.
 
 read(IProto, Type) ->
-    try read_frag(IProto, Type) of
+    try read_frag(IProto, Type, []) of
         {IProto2, Data} ->
-            case validate({Type, Data}) of
-                ok    -> {ok, Data, IProto2};
-                Error -> Error
-            end
+            {ok, Data, IProto2}
     catch
         throw:Reason ->
             {error, Reason}
@@ -142,126 +136,135 @@ read(IProto, Type) ->
 -define(read_set(Etype, Size), ?read_byte(Etype), ?read_i32(Size)).
 -define(read_map(Ktype, Vtype, Size), ?read_byte(Ktype), ?read_byte(Vtype), ?read_i32(Size)).
 
-read_frag(IProto, {struct, union, {Module, StructName}}) when
+read_frag(IProto, {struct, union, {Module, StructName}}, Path) when
   is_atom(Module), is_atom(StructName) ->
-    read_union(IProto, element(3, Module:struct_info(StructName)));
-read_frag(IProto, {struct, _, {Module, StructName}}) when
+    read_union(IProto, element(3, Module:struct_info(StructName)), Path);
+read_frag(IProto, {struct, _, {Module, StructName}}, Path) when
   is_atom(Module), is_atom(StructName) ->
-    read_struct(IProto, element(3, Module:struct_info(StructName)), Module:record_name(StructName));
+    read_struct(IProto, element(3, Module:struct_info(StructName)), Module:record_name(StructName), Path);
 
-read_frag(IProto, {enum, {Module, EnumName}}) when is_atom(Module) ->
-    read_frag(IProto, Module:enum_info(EnumName));
+read_frag(IProto, {enum, {Module, EnumName}}, Path) when is_atom(Module) ->
+    read_frag(IProto, Module:enum_info(EnumName), Path);
 
-read_frag(IProto, {enum, Fields}) when is_list(Fields) ->
+read_frag(IProto, {enum, Fields}, Path) when is_list(Fields) ->
     {IProto2, IVal} = impl_read_i32(IProto),
-    {EnumVal, IVal} = lists:keyfind(IVal, 2, Fields),
-    {IProto2, EnumVal};
+    case lists:keyfind(IVal, 2, Fields) of
+        {EnumVal, IVal} ->
+            {IProto2, EnumVal};
+        _ ->
+            throw({invalid, Path, IVal})
+    end;
 
-read_frag(<<?read_list(EType, Size), IProto1/binary>>, {list, Type}) ->
+read_frag(
+    <<?read_list(EType, Size), IProto1/binary>> = IProto,
+    {list, Type} = SType,
+    Path
+) ->
     case term_to_typeid(Type) of
         EType ->
-            read_list_loop(IProto1, Type, Size);
+            read_list_loop(IProto1, Type, Size, Path);
             % IProto3 = read_frag(IProto2, list_end),
         _ ->
-            % throw({unexpected, Path, {list, typeid_to_atom(EType)}})
-            throw({unexpected, {list, typeid_to_atom(EType)}})
+            throw({unexpected, Path, SType, IProto})
     end;
 
-read_frag(<<?read_map(KType, VType, Size), IProto1/binary>>, {map, KeyType, ValType}) ->
+read_frag(
+    <<?read_map(KType, VType, Size), IProto1/binary>> = IProto,
+    {map, KeyType, ValType} = SType,
+    Path
+) ->
     case KType =:= term_to_typeid(KeyType) andalso VType =:= term_to_typeid(ValType) of
         true ->
-            read_map_loop(IProto1, KeyType, ValType, Size);
+            read_map_loop(IProto1, KeyType, ValType, Size, Path);
             % IProto3 = read_frag(IProto2, map_end),
         _ ->
-            % throw({unexpected, Path, {set, typeid_to_atom(EType)}})
-            throw({unexpected, {map, typeid_to_atom(KType), typeid_to_atom(VType)}})
+            throw({unexpected, Path, SType, IProto})
     end;
 
-read_frag(<<?read_set(EType, Size), IProto1/binary>>, {set, Type}) ->
+read_frag(
+    <<?read_set(EType, Size), IProto1/binary>> = IProto,
+    {set, Type} = SType,
+    Path
+) ->
     case term_to_typeid(Type) of
         EType ->
-            read_set_loop(IProto1, Type, Size);
+            read_set_loop(IProto1, Type, Size, Path);
             % IProto3 = read_frag(IProto2, set_end),
         _ ->
-            % throw({unexpected, Path, {set, typeid_to_atom(EType)}})
-            throw({unexpected, {set, typeid_to_atom(EType)}})
+            throw({unexpected, Path, SType, IProto})
     end;
 
-read_frag(<<?read_byte(Byte), Proto/binary>>, bool) ->
+read_frag(<<?read_byte(Byte), Proto/binary>>, bool, _) ->
     {Proto, Byte /= 0};
-read_frag(<<?read_byte(Val), Proto/binary>>, byte) ->
+read_frag(<<?read_byte(Val), Proto/binary>>, byte, _) ->
     {Proto, Val};
-read_frag(<<?read_i16(Val), Proto/binary>>, i16) ->
+read_frag(<<?read_i16(Val), Proto/binary>>, i16, _) ->
     {Proto, Val};
-read_frag(<<?read_i32(Val), Proto/binary>>, i32) ->
+read_frag(<<?read_i32(Val), Proto/binary>>, i32, _) ->
     {Proto, Val};
-read_frag(<<?read_i64(Val), Proto/binary>>, i64) ->
+read_frag(<<?read_i64(Val), Proto/binary>>, i64, _) ->
     {Proto, Val};
-read_frag(<<?read_double(Val), Proto/binary>>, double) ->
+read_frag(<<?read_double(Val), Proto/binary>>, double, _) ->
     {Proto, Val};
-read_frag(<<?read_i32(Sz), Proto/binary>>, string) ->
+read_frag(<<?read_i32(Sz), Proto/binary>>, string, _) ->
     read_data(Proto, Sz);
 
-read_frag(IProto, {struct, union, StructDef}) when is_list(StructDef) ->
-    read_union(IProto, StructDef);
-read_frag(IProto, {struct, _, StructDef}) when is_list(StructDef) ->
-    read_struct(IProto, StructDef, undefined);
+read_frag(IProto, {struct, union, StructDef}, Path) when is_list(StructDef) ->
+    read_union(IProto, StructDef, Path);
+read_frag(IProto, {struct, _, StructDef}, Path) when is_list(StructDef) ->
+    read_struct(IProto, StructDef, undefined, Path);
 
-read_frag(Proto, _Type) ->
-    % throw({unexpected, Path, Proto}).
-    throw({unexpected, Proto}).
+read_frag(Proto, Type, Path) ->
+    throw({unexpected, Path, Type, Proto}).
 
--spec read_list_loop(protocol(), any(), non_neg_integer()) -> {protocol(), [any()]}.
-read_list_loop(Proto0, ValType, Size) ->
-    read_list_loop(Proto0, ValType, Size, []).
+-spec read_list_loop(protocol(), any(), non_neg_integer(), [atom()]) -> {protocol(), [any()]}.
+read_list_loop(Proto0, ValType, Size, Path) ->
+    read_list_loop(Proto0, ValType, Size, [], Path).
 
-read_list_loop(Proto0, _ValType, 0, List) ->
+read_list_loop(Proto0, _ValType, 0, List, _Path) ->
     {Proto0, lists:reverse(List)};
-read_list_loop(Proto0, ValType, Left, List) ->
-    {Proto1, Val} = read_frag(Proto0, ValType),
-    read_list_loop(Proto1, ValType, Left - 1, [Val | List]).
+read_list_loop(Proto0, ValType, Left, List, Path) ->
+    {Proto1, Val} = read_frag(Proto0, ValType, Path),
+    read_list_loop(Proto1, ValType, Left - 1, [Val | List], Path).
 
--spec read_map_loop(protocol(), any(), any(), non_neg_integer()) -> {protocol(), map()}.
-read_map_loop(Proto0, KeyType, ValType, Size) ->
-    read_map_loop(Proto0, KeyType, ValType, Size, #{}).
+-spec read_map_loop(protocol(), any(), any(), non_neg_integer(), [atom()]) -> {protocol(), map()}.
+read_map_loop(Proto0, KeyType, ValType, Size, Path) ->
+    read_map_loop(Proto0, KeyType, ValType, Size, #{}, Path).
 
-read_map_loop(Proto0, _KeyType, _ValType, 0, Map) ->
+read_map_loop(Proto0, _KeyType, _ValType, 0, Map, _Path) ->
     {Proto0, Map};
-read_map_loop(Proto0, KeyType, ValType, Left, Map) ->
-    {Proto1, Key} = read_frag(Proto0, KeyType),
-    {Proto2, Val} = read_frag(Proto1, ValType),
-    read_map_loop(Proto2, KeyType, ValType, Left - 1, maps:put(Key, Val, Map)).
+read_map_loop(Proto0, KeyType, ValType, Left, Map, Path) ->
+    {Proto1, Key} = read_frag(Proto0, KeyType, Path),
+    {Proto2, Val} = read_frag(Proto1, ValType, Path),
+    read_map_loop(Proto2, KeyType, ValType, Left - 1, maps:put(Key, Val, Map), Path).
 
--spec read_set_loop(protocol(), any(), non_neg_integer()) -> {protocol(), ordsets:ordset(any())}.
-read_set_loop(Proto0, ValType, Size) ->
-    read_set_loop(Proto0, ValType, Size, ordsets:new()).
+-spec read_set_loop(protocol(), any(), non_neg_integer(), [atom()]) -> {protocol(), ordsets:ordset(any())}.
+read_set_loop(Proto0, ValType, Size, Path) ->
+    read_set_loop(Proto0, ValType, Size, ordsets:new(), Path).
 
-read_set_loop(Proto0, _ValType, 0, Set) ->
+read_set_loop(Proto0, _ValType, 0, Set, _Path) ->
     {Proto0, Set};
-read_set_loop(Proto0, ValType, Left, Set) ->
-    {Proto1, Val} = read_frag(Proto0, ValType),
-    read_set_loop(Proto1, ValType, Left - 1, ordsets:add_element(Val, Set)).
+read_set_loop(Proto0, ValType, Left, Set, Path) ->
+    {Proto1, Val} = read_frag(Proto0, ValType, Path),
+    read_set_loop(Proto1, ValType, Left - 1, ordsets:add_element(Val, Set), Path).
 
-read_union_loop(IProto0, StructDef) ->
-    read_union_loop(IProto0, StructDef, undefined).
-
-read_union_loop(<<?read_byte(?tType_STOP), IProto1/binary>>, _StructDef, Acc) ->
+read_union_loop(<<?read_byte(?tType_STOP), IProto1/binary>>, _StructDef, Acc, _Path) ->
     % {IProto2, ok} = read_frag(IProto1, struct_end),
     {IProto1, Acc};
-read_union_loop(<<?read_byte(FType), ?read_i16(Fid), IProto1/binary>>, StructDef, Acc) ->
+read_union_loop(<<?read_byte(FType), ?read_i16(Fid), IProto1/binary>>, StructDef, Acc, Path) ->
     case lists:keyfind(Fid, 1, StructDef) of
         {_, _Req, Type, Name, _Default} ->
             case term_to_typeid(Type) of
                 FType ->
-                    {IProto2, Val} = read_frag(IProto1, Type),
-                    read_union_loop(IProto2, StructDef, set_union_val(Name, Val, Acc));
+                    {IProto2, Val} = read_frag(IProto1, Type, [Name | Path]),
+                    read_union_loop(IProto2, StructDef, set_union_val(Name, Val, Acc), Path);
                 _Expected ->
                     IProto2 = skip_mistyped_field(IProto1, Name, FType),
-                    read_union_loop(IProto2, StructDef, Acc)
+                    read_union_loop(IProto2, StructDef, Acc, Path)
             end;
         _ ->
             IProto2 = skip_unknown_field(IProto1, Fid, FType),
-            read_union_loop(IProto2, StructDef, Acc)
+            read_union_loop(IProto2, StructDef, Acc, Path)
     end.
 
 set_union_val(Name, Val, undefined) ->
@@ -269,25 +272,25 @@ set_union_val(Name, Val, undefined) ->
 set_union_val(Name, Val, Acc) ->
     [{Name, Val} | Acc].
 
-read_struct_loop(<<?read_byte(?tType_STOP), IProto1/binary>>, _StructDef, _Offset, Acc) ->
+read_struct_loop(<<?read_byte(?tType_STOP), IProto1/binary>>, StructDef, Offset, Acc, Path) ->
     % {IProto2, ok} = read_frag(IProto1, struct_end),
-    {IProto1, Acc};
-read_struct_loop(<<?read_byte(FType), ?read_i16(Fid), IProto1/binary>>, StructDef, Offset, Acc) ->
+    {IProto1, validate_struct(StructDef, Acc, Offset, Path)};
+read_struct_loop(<<?read_byte(FType), ?read_i16(Fid), IProto1/binary>>, StructDef, Offset, Acc, Path) ->
     case find_struct_field(Fid, StructDef, Offset) of
         {Idx, Name, Type} ->
             case term_to_typeid(Type) of
                 FType ->
-                    {IProto2, Val} = read_frag(IProto1, Type),
+                    {IProto2, Val} = read_frag(IProto1, Type, [Name | Path]),
                     % {IProto3, ok} = read_frag(IProto2, field_end),
                     NewAcc = setelement(Idx, Acc, Val),
-                    read_struct_loop(IProto2, StructDef, Offset, NewAcc);
+                    read_struct_loop(IProto2, StructDef, Offset, NewAcc, Path);
                 _Expected ->
                     IProto2 = skip_mistyped_field(IProto1, Name, FType),
-                    read_struct_loop(IProto2, StructDef, Offset, Acc)
+                    read_struct_loop(IProto2, StructDef, Offset, Acc, Path)
             end;
         _ ->
             IProto2 = skip_unknown_field(IProto1, Fid, FType),
-            read_struct_loop(IProto2, StructDef, Offset, Acc)
+            read_struct_loop(IProto2, StructDef, Offset, Acc, Path)
     end.
 
 find_struct_field(Fid, [{Fid, _, Type, Name, _} | _], Idx) ->
@@ -306,6 +309,18 @@ skip_unknown_field(IProto, Fid, FType) ->
     FTypeAtom = typeid_to_atom(FType),
     error_logger:info_msg("Skipping unknown field [~p] with type: ~p~n", [Fid, FTypeAtom]),
     skip(IProto, FTypeAtom).
+
+validate_struct([], Record, _, _) ->
+    Record;
+validate_struct([{_Fid, required, _Type, Name, _} | Rest], Record, I, Path) ->
+    case element(I, Record) of
+        undefined ->
+            throw({invalid, [Name | Path], undefined});
+        _ ->
+            validate_struct(Rest, Record, I + 1, Path)
+    end;
+validate_struct([_ | Rest], Record, I, Path) ->
+    validate_struct(Rest, Record, I + 1, Path).
 
 -spec skip(protocol(), any()) -> {protocol(), ok}.
 
@@ -331,7 +346,7 @@ skip(<<?read_list(EType, Size), Proto1/binary>>, list) ->
     Proto2;
 
 skip(Proto0, Type) when is_atom(Type) ->
-    {Proto1, _Ignore} = read_frag(Proto0, Type),
+    {Proto1, _Ignore} = read_frag(Proto0, Type, []),
     Proto1;
 
 skip(Proto0, Type) when is_integer(Type) ->
