@@ -768,8 +768,10 @@ impl_read_string(<<?read_i32(Sz), This/binary>>) ->
     {protocol(), binary()}.
 read_data(This, 0) ->
     {This, <<>>};
-read_data(This, Len) when is_integer(Len) andalso Len > 0 ->
-    impl_transport_read(This, Len).
+read_data(This, Len) ->
+  Give = min(byte_size(This), Len),
+  <<Result:Give/binary, Remaining/binary>> = This,
+  {Remaining, Result}.
 
 %%
 
@@ -777,8 +779,3 @@ impl_transport_new(Buf) when is_list(Buf) ->
   iolist_to_binary(Buf);
 impl_transport_new(Buf) when is_binary(Buf) ->
   Buf.
-
-impl_transport_read(State, Len) ->
-  Give = min(byte_size(State), Len),
-  <<Result:Give/binary, Remaining/binary>> = State,
-  {Remaining, Result}.
