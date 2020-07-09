@@ -144,15 +144,7 @@ read_frag(IProto, {struct, _, {Module, StructName}}, Path) when
     read_struct(IProto, element(3, Module:struct_info(StructName)), Module:record_name(StructName), Path);
 
 read_frag(IProto, {enum, {Module, EnumName}}, Path) when is_atom(Module) ->
-    read_frag(IProto, Module:enum_info(EnumName), Path);
-
-read_frag(<<?read_i32(IVal), IProto2/binary>>, {enum, Fields}, Path) ->
-    case lists:keyfind(IVal, 2, Fields) of
-        {EnumVal, IVal} ->
-            {IProto2, EnumVal};
-        _ ->
-            throw({invalid, Path, IVal})
-    end;
+    read_enum(IProto, element(2, Module:enum_info(EnumName)), Path);
 
 read_frag(
     <<?read_list(EType, Size), IProto1/binary>> = IProto,
@@ -320,6 +312,14 @@ validate_struct([{_Fid, required, _Type, Name, _} | Rest], Record, I, Path) ->
     end;
 validate_struct([_ | Rest], Record, I, Path) ->
     validate_struct(Rest, Record, I + 1, Path).
+
+read_enum(<<?read_i32(IVal), IProto2/binary>>, Fields, Path) ->
+    case lists:keyfind(IVal, 2, Fields) of
+        {EnumVal, IVal} ->
+            {IProto2, EnumVal};
+        _ ->
+            throw({invalid, Path, IVal})
+    end.
 
 -spec skip(protocol(), any()) -> {protocol(), ok}.
 
