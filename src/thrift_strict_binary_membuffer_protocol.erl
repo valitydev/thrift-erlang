@@ -85,39 +85,34 @@ term_to_typeid({list, _}) -> ?tType_LIST.
 read(IProto0, {struct, union, StructDef}, _Tag)
   when is_list(StructDef) ->
     % {IProto1, ok} = read_frag(IProto0, struct_begin),
-    {IProto1, RTuple} = read_union_loop(IProto0, enumerate(1, StructDef)),
+    {IProto1, RTuple} = read_union_loop(IProto0, StructDef),
     case RTuple of
-      [{_, _} = Data] -> {IProto1, Data};
-      [] ->              {IProto1, empty};
-      [_ | _] ->         {IProto1, {multiple, RTuple}}
+      {_, _} = Data -> {IProto1, Data};
+      undefined     -> {IProto1, empty};
+      [_ | _]       -> {IProto1, {multiple, RTuple}}
     end;
 read(IProto0, {struct, _, StructDef}, Tag)
   when is_list(StructDef), is_atom(Tag) ->
     % {IProto1, ok} = read_frag(IProto0, struct_begin),
     {Offset, RTuple0} = construct_default_struct(Tag, StructDef),
-    read_struct_loop(IProto0, enumerate(Offset + 1, StructDef), RTuple0).
+    read_struct_loop(IProto0, StructDef, Offset, RTuple0).
 
 construct_default_struct(Tag, StructDef) ->
     case Tag of
         undefined ->
             Tuple = erlang:make_tuple(length(StructDef), undefined),
-            {0, fill_default_struct(1, StructDef, Tuple)};
+            {1, fill_default_struct(1, StructDef, Tuple)};
         _ ->
             % If we want a tagged tuple, we need to offset all the tuple indices
             % by 1 to avoid overwriting the tag.
             Tuple = erlang:make_tuple(length(StructDef) + 1, undefined),
-            {1, fill_default_struct(2, StructDef, erlang:setelement(1, Tuple, Tag))}
+            {2, fill_default_struct(2, StructDef, erlang:setelement(1, Tuple, Tag))}
     end.
 
 fill_default_struct(_N, [], Record) ->
     Record;
 fill_default_struct(N, [{_Fid, _Req, _Type, _Name, Default} | Rest], Record) ->
     fill_default_struct(N + 1, Rest, erlang:setelement(N, Record, Default)).
-
-enumerate(N, [{Fid, _Req, Type, Name, _Default} | Rest]) ->
-    [{N, Fid, Type, Name} | enumerate(N + 1, Rest)];
-enumerate(_, []) ->
-    [].
 
 %% NOTE: Keep this in sync with thrift_protocol_behaviour:read
 -spec read
@@ -231,54 +226,78 @@ read_set_loop(Proto0, ValType, Left, Set) ->
     {Proto1, Val} = read_frag(Proto0, ValType),
     read_set_loop(Proto1, ValType, Left - 1, ordsets:add_element(Val, Set)).
 
-read_struct_loop(IProto0, StructIndex, RTuple) ->
-  read_struct_loop(
-    IProto0, StructIndex,
-    fun ({N, _, Val}, Acc) -> setelement(N, Acc, Val) end,
-    RTuple
-  ).
+read_union_loop(IProto0, StructDef) ->
+    read_union_loop(IProto0, StructDef, undefined).
 
-read_union_loop(IProto0, StructIndex) ->
-  read_struct_loop(
-    IProto0, StructIndex,
-    fun ({_, Name, Val}, Was) -> [{Name, Val} | Was] end,
-    []
-  ).
-
-read_struct_loop(IProto0, StructIndex, Fun, Acc) ->
+read_union_loop(IProto0, StructDef, Acc) ->
     {IProto1, #protocol_field_begin{type = FType, id = Fid}} = impl_read_field_begin(IProto0),
     case FType of
         ?tType_STOP ->
             % {IProto2, ok} = read_frag(IProto1, struct_end),
             {IProto1, Acc};
         _Else ->
-            case lists:keyfind(Fid, 2, StructIndex) of
-                {N, Fid, Type, Name} ->
+            case lists:keyfind(Fid, 1, StructDef) of
+                {_, _Req, Type, Name, _Default} ->
+                    case term_to_typeid(Type) of
+                        FType ->
+                            {IProto2, Val} = read_frag(IProto1, Type),
+                            read_union_loop(IProto2, StructDef, set_union_val(Name, Val, Acc));
+                        _Expected ->
+                            IProto2 = skip_mistyped_field(IProto1, Name, FType),
+                            read_union_loop(IProto2, StructDef, Acc)
+                    end;
+                _ ->
+                    IProto2 = skip_unknown_field(IProto1, Fid, FType),
+                    read_union_loop(IProto2, StructDef, Acc)
+            end
+    end.
+
+set_union_val(Name, Val, undefined) ->
+    {Name, Val};
+set_union_val(Name, Val, Acc) ->
+    [{Name, Val} | Acc].
+
+read_struct_loop(IProto0, StructDef, Offset, Acc) ->
+    {IProto1, #protocol_field_begin{type = FType, id = Fid}} = impl_read_field_begin(IProto0),
+    case FType of
+        ?tType_STOP ->
+            % {IProto2, ok} = read_frag(IProto1, struct_end),
+            {IProto1, Acc};
+        _Else ->
+            case find_struct_field(Fid, StructDef, Offset) of
+                {Idx, Name, Type} ->
                     case term_to_typeid(Type) of
                         FType ->
                             {IProto2, Val} = read_frag(IProto1, Type),
                             % {IProto3, ok} = read_frag(IProto2, field_end),
-                            NewAcc = Fun({N, Name, Val}, Acc),
-                            read_struct_loop(IProto2, StructIndex, Fun, NewAcc);
+                            NewAcc = setelement(Idx, Acc, Val),
+                            read_struct_loop(IProto2, StructDef, Offset, NewAcc);
                         _Expected ->
-                            error_logger:info_msg(
-                                "Skipping field ~p with wrong type: ~p~n",
-                                [Name, typeid_to_atom(FType)]),
-                            skip_field(FType, IProto1, StructIndex, Acc)
+                            IProto2 = skip_mistyped_field(IProto1, Name, FType),
+                            read_struct_loop(IProto2, StructDef, Offset, Acc)
                     end;
-                false ->
-                    error_logger:info_msg(
-                        "Skipping unknown field [~p] with type: ~p~n",
-                        [Fid, typeid_to_atom(FType)]),
-                    skip_field(FType, IProto1, StructIndex, Acc)
+                _ ->
+                    IProto2 = skip_unknown_field(IProto1, Fid, FType),
+                    read_struct_loop(IProto2, StructDef, Offset, Acc)
             end
     end.
 
-skip_field(FType, IProto0, StructIndex, Acc) ->
+find_struct_field(Fid, [{Fid, _, Type, Name, _} | _], Idx) ->
+    {Idx, Name, Type};
+find_struct_field(Fid, [_ | Rest], Idx) ->
+    find_struct_field(Fid, Rest, Idx + 1);
+find_struct_field(_, [], _) ->
+    false.
+
+skip_mistyped_field(IProto, Name, FType) ->
     FTypeAtom = typeid_to_atom(FType),
-    {IProto1, ok} = skip(IProto0, FTypeAtom),
-    % {IProto2, ok} = read_frag(IProto1, field_end),
-    read_struct_loop(IProto1, StructIndex, Acc).
+    error_logger:info_msg("Skipping field ~p with wrong type: ~p~n", [Name, FTypeAtom]),
+    skip(IProto, FTypeAtom).
+
+skip_unknown_field(IProto, Fid, FType) ->
+    FTypeAtom = typeid_to_atom(FType),
+    error_logger:info_msg("Skipping unknown field [~p] with type: ~p~n", [Fid, FTypeAtom]),
+    skip(IProto, FTypeAtom).
 
 -spec skip(protocol(), any()) -> {protocol(), ok}.
 
@@ -759,5 +778,5 @@ impl_transport_new(Buf) when is_binary(Buf) ->
 
 impl_transport_read(State, Len) ->
   Give = min(byte_size(State), Len),
-  {Result, Remaining} = split_binary(State, Give),
+  <<Result:Give/binary, Remaining/binary>> = State,
   {Remaining, Result}.
