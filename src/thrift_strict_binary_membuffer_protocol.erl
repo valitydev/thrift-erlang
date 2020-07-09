@@ -94,20 +94,17 @@ read(IProto0, {struct, union, StructDef}, _Tag)
 read(IProto0, {struct, _, StructDef}, Tag)
   when is_list(StructDef), is_atom(Tag) ->
     % {IProto1, ok} = read_frag(IProto0, struct_begin),
-    {Offset, RTuple0} = construct_default_struct(Tag, StructDef),
-    read_struct_loop(IProto0, StructDef, Offset, RTuple0).
+    read_struct(IProto0, StructDef, Tag).
 
-construct_default_struct(Tag, StructDef) ->
-    case Tag of
-        undefined ->
-            Tuple = erlang:make_tuple(length(StructDef), undefined),
-            {1, fill_default_struct(1, StructDef, Tuple)};
-        _ ->
-            % If we want a tagged tuple, we need to offset all the tuple indices
-            % by 1 to avoid overwriting the tag.
-            Tuple = erlang:make_tuple(length(StructDef) + 1, undefined),
-            {2, fill_default_struct(2, StructDef, erlang:setelement(1, Tuple, Tag))}
-    end.
+read_struct(IProto0, StructDef, undefined) ->
+    Tuple = erlang:make_tuple(length(StructDef), undefined),
+    read_struct_loop(IProto0, StructDef, 1, Tuple);
+read_struct(IProto0, StructDef, Tag) ->
+    % If we want a tagged tuple, we need to offset all the tuple indices
+    % by 1 to avoid overwriting the tag.
+    Tuple = erlang:make_tuple(length(StructDef) + 1, undefined),
+    Record = fill_default_struct(2, StructDef, erlang:setelement(1, Tuple, Tag)),
+    read_struct_loop(IProto0, StructDef, 2, Record).
 
 fill_default_struct(_N, [], Record) ->
     Record;
