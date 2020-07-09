@@ -100,10 +100,10 @@ read_struct(IProto0, StructDef, Tag, Path) ->
 
 fill_default_struct(_N, [], Record) ->
     Record;
-fill_default_struct(N, [{_Fid, _Req, _Type, _Name, undefined} | Rest], Record) ->
+fill_default_struct(N, [FieldDef | Rest], Record) when element(5, FieldDef) =:= undefined ->
     fill_default_struct(N + 1, Rest, Record);
-fill_default_struct(N, [{_Fid, _Req, _Type, _Name, Default} | Rest], Record) ->
-    fill_default_struct(N + 1, Rest, erlang:setelement(N, Record, Default)).
+fill_default_struct(N, [FieldDef | Rest], Record) ->
+    fill_default_struct(N + 1, Rest, erlang:setelement(N, Record, element(5, FieldDef))).
 
 -spec read
         (protocol(), {struct, _Flavour, _Info}) ->
