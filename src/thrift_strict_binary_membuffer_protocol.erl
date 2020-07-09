@@ -146,8 +146,7 @@ read_frag(IProto, {struct, _, {Module, StructName}}, Path) when
 read_frag(IProto, {enum, {Module, EnumName}}, Path) when is_atom(Module) ->
     read_frag(IProto, Module:enum_info(EnumName), Path);
 
-read_frag(IProto, {enum, Fields}, Path) when is_list(Fields) ->
-    {IProto2, IVal} = impl_read_i32(IProto),
+read_frag(<<?read_i32(IVal), IProto2/binary>>, {enum, Fields}, Path) ->
     case lists:keyfind(IVal, 2, Fields) of
         {EnumVal, IVal} ->
             {IProto2, EnumVal};
