@@ -79,22 +79,16 @@ term_to_typeid({map, _, _}) -> ?tType_MAP;
 term_to_typeid({set, _}) -> ?tType_SET;
 term_to_typeid({list, _}) -> ?tType_LIST.
 
-%% Structure is like:
-%%    [{Fid, Type}, ...]
--spec read(protocol(), {struct, _Flavour, _StructDef}, atom()) -> {protocol(), {ok, tuple()}}.
-read(IProto0, {struct, union, StructDef}, _Tag)
-  when is_list(StructDef) ->
+read_union(IProto0, StructDef) ->
     % {IProto1, ok} = read_frag(IProto0, struct_begin),
     {IProto1, RTuple} = read_union_loop(IProto0, StructDef),
     case RTuple of
-      {_, _} = Data -> {IProto1, Data};
-      undefined     -> {IProto1, empty};
-      [_ | _]       -> {IProto1, {multiple, RTuple}}
-    end;
-read(IProto0, {struct, _, StructDef}, Tag)
-  when is_list(StructDef), is_atom(Tag) ->
-    % {IProto1, ok} = read_frag(IProto0, struct_begin),
-    read_struct(IProto0, StructDef, Tag).
+      {_, _} ->
+          {IProto1, RTuple};
+      _ ->
+        %   throw({invalid, Path, RTuple})
+          throw({invalid, RTuple})
+    end.
 
 read_struct(IProto0, StructDef, undefined) ->
     Tuple = erlang:make_tuple(length(StructDef), undefined),
@@ -148,15 +142,12 @@ read(IProto, Type) ->
 -define(read_set(Etype, Size), ?read_byte(Etype), ?read_i32(Size)).
 -define(read_map(Ktype, Vtype, Size), ?read_byte(Ktype), ?read_byte(Vtype), ?read_i32(Size)).
 
-read_frag(IProto, {struct, union, {Module, StructureName}}) when
-  is_atom(Module), is_atom(StructureName) ->
-    read(IProto, Module:struct_info(StructureName), undefined);
-read_frag(IProto, {struct, _, {Module, StructureName}}) when
-  is_atom(Module), is_atom(StructureName) ->
-    read(IProto, Module:struct_info(StructureName), Module:record_name(StructureName));
-
-read_frag(IProto, S = {struct, _, Structure}) when is_list(Structure) ->
-    read(IProto, S, undefined);
+read_frag(IProto, {struct, union, {Module, StructName}}) when
+  is_atom(Module), is_atom(StructName) ->
+    read_union(IProto, element(3, Module:struct_info(StructName)));
+read_frag(IProto, {struct, _, {Module, StructName}}) when
+  is_atom(Module), is_atom(StructName) ->
+    read_struct(IProto, element(3, Module:struct_info(StructName)), Module:record_name(StructName));
 
 read_frag(IProto, {enum, {Module, EnumName}}) when is_atom(Module) ->
     read_frag(IProto, Module:enum_info(EnumName));
@@ -196,20 +187,29 @@ read_frag(<<?read_set(EType, Size), IProto1/binary>>, {set, Type}) ->
             throw({unexpected, {set, typeid_to_atom(EType)}})
     end;
 
-read_frag(Proto, bool) ->
-    impl_read_bool(Proto);
-read_frag(Proto, byte) ->
-    impl_read_byte(Proto);
-read_frag(Proto, i16) ->
-    impl_read_i16(Proto);
-read_frag(Proto, i32) ->
-    impl_read_i32(Proto);
-read_frag(Proto, i64) ->
-    impl_read_i64(Proto);
-read_frag(Proto, double) ->
-    impl_read_double(Proto);
-read_frag(Proto, string) ->
-    impl_read_string(Proto).
+read_frag(<<?read_byte(Byte), Proto/binary>>, bool) ->
+    {Proto, Byte /= 0};
+read_frag(<<?read_byte(Val), Proto/binary>>, byte) ->
+    {Proto, Val};
+read_frag(<<?read_i16(Val), Proto/binary>>, i16) ->
+    {Proto, Val};
+read_frag(<<?read_i32(Val), Proto/binary>>, i32) ->
+    {Proto, Val};
+read_frag(<<?read_i64(Val), Proto/binary>>, i64) ->
+    {Proto, Val};
+read_frag(<<?read_double(Val), Proto/binary>>, double) ->
+    {Proto, Val};
+read_frag(<<?read_i32(Sz), Proto/binary>>, string) ->
+    read_data(Proto, Sz);
+
+read_frag(IProto, {struct, union, StructDef}) when is_list(StructDef) ->
+    read_union(IProto, StructDef);
+read_frag(IProto, {struct, _, StructDef}) when is_list(StructDef) ->
+    read_struct(IProto, StructDef, undefined);
+
+read_frag(Proto, _Type) ->
+    % throw({unexpected, Path, Proto}).
+    throw({unexpected, Proto}).
 
 -spec read_list_loop(protocol(), any(), non_neg_integer()) -> {protocol(), [any()]}.
 read_list_loop(Proto0, ValType, Size) ->
