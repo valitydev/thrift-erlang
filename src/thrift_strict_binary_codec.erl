@@ -17,7 +17,7 @@
 %% under the License.
 %%
 
--module(thrift_strict_binary_membuffer_protocol).
+-module(thrift_strict_binary_codec).
 
 -compile(inline).
 
