@@ -117,6 +117,10 @@ fill_default_struct(N, [FieldDef | Rest], Record) ->
         (protocol(), tprot_data_tag()) ->
             {ok, any(), protocol()} | {error, _Reason}.
 
+read(IProto, message_begin) ->
+    impl_read_message_begin(IProto);
+read(IProto, message_end) ->
+    {IProto, ok};
 read(IProto, Type) ->
     try read_frag(IProto, Type, []) of
         {IProto2, Data} ->
@@ -704,8 +708,9 @@ impl_read_message_begin(<<?read_i32(Sz), This1/binary>>) ->
 
 impl_read_message_begin(This0, Sz) when Sz band ?VERSION_MASK =:= ?VERSION_1 ->
     %% we're at version 1
-    {<<?read_i32(SeqId), This1/binary>>, Name} = impl_read_string(This0),
-    {This1, #protocol_message_begin{name  = Name,
+    {This1, Name} = impl_read_string(This0),
+    <<?read_i32(SeqId), This2/binary>> = This1,
+    {This2, #protocol_message_begin{name  = Name,
                                     type  = Sz band ?TYPE_MASK,
                                     seqid = SeqId}};
 impl_read_message_begin(_This, Sz) when Sz < 0 ->
