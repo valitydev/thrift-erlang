@@ -725,45 +725,13 @@ impl_read_message_begin(_This, _) ->
 % impl_read(This, struct_begin) -> {This, ok};
 % impl_read(This, struct_end) -> {This, ok};
 
-impl_read_field_begin(<<?read_byte(?tType_STOP), This/binary>>) ->
-    {This, #protocol_field_begin{type = ?tType_STOP}};
-impl_read_field_begin(<<?read_byte(Type), ?read_i16(Id), This/binary>>) ->
-    {This, #protocol_field_begin{type = Type, id = Id}}.
-
 % impl_read(This, field_end) -> {This, ok};
-
-impl_read_map_begin(<<?read_byte(Ktype), ?read_byte(Vtype), ?read_i32(Size), This/binary>>) ->
-    {This, #protocol_map_begin{ktype = Ktype, vtype = Vtype, size = Size}}.
 
 % impl_read(This, map_end) -> {This, ok};
 
-impl_read_list_begin(<<?read_byte(Etype), ?read_i32(Size), This/binary>>) ->
-    {This, #protocol_list_begin{etype = Etype, size = Size}}.
-
 % impl_read(This, list_end) -> {This, ok};
 
-impl_read_set_begin(<<?read_byte(Etype), ?read_i32(Size), This/binary>>) ->
-    {This, #protocol_set_begin{etype = Etype, size = Size}}.
-
 % impl_read(This, set_end) -> {This, ok};
-
-impl_read_bool(<<?read_byte(Byte), This/binary>>) ->
-    {This, Byte /= 0}.
-
-impl_read_byte(<<?read_byte(Val), This/binary>>) ->
-    {This, Val}.
-
-impl_read_i16(<<?read_i16(Val), This/binary>>) ->
-    {This, Val}.
-
-impl_read_i32(<<?read_i32(Val), This/binary>>) ->
-    {This, Val}.
-
-impl_read_i64(<<?read_i64(Val), This/binary>>) ->
-    {This, Val}.
-
-impl_read_double(<<?read_double(Val), This/binary>>) ->
-    {This, Val}.
 
 impl_read_string(<<?read_i32(Sz), This/binary>>) ->
     read_data(This, Sz).
