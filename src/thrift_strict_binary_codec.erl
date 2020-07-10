@@ -17,6 +17,21 @@
 %% under the License.
 %%
 
+%% This module specifically designed for coding Thrift protocol
+%% structures into and from a plain binary, following binary
+%% protocol with strict read and write turned on.
+%%
+%% It's essentially a result of squashing `thrift_protocol`,
+%% `thrift_binary_protocol` and `thrift_membuffer_transport`
+%% together in a single module, with aggressive inlining and
+%% shedding of unnecessary allocations. Validation still works
+%% but it's now performed in the same single encoding pass.
+%% All these measures give significant performance improvements
+%% over generic construction, both in terms of reductions and
+%% memory pressure. With a sample, quite complex (1Mb on the
+%% wire) Thrift model we've seen 5x speedup in encoding and 4x
+%% speedup in decoding.
+
 -module(thrift_strict_binary_codec).
 
 -compile(inline).
