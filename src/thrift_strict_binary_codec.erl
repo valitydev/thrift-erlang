@@ -42,6 +42,8 @@
          write_message_begin/4,
          write_message_end/1,
          read/2,
+         read_message_begin/1,
+         read_message_end/1,
          skip/2,
          validate/1,
          close/1
@@ -95,6 +97,39 @@ term_to_typeid({map, _, _}) -> ?tType_MAP;
 term_to_typeid({set, _}) -> ?tType_SET;
 term_to_typeid({list, _}) -> ?tType_LIST.
 
+-spec read_message_begin(protocol()) ->
+    {ok, #protocol_message_begin{}, protocol()} | {error, any()}.
+
+read_message_begin(IProto) ->
+    impl_read_message_begin(IProto).
+
+-spec read_message_end(protocol()) ->
+    {ok, ok, protocol()}.
+
+read_message_end(IProto) ->
+    {ok, ok, IProto}.
+
+-spec read
+        (protocol(), {struct, _Flavour, _Info}) ->
+            {ok, tuple(), protocol()} | {error, _Reason};
+        (protocol(), tprot_cont_tag()) ->
+            {ok, any(), protocol()} | {error, _Reason};
+        (protocol(), tprot_empty_tag()) ->
+            {ok, ok, protocol()} | {error, _Reason};
+        (protocol(), tprot_header_tag()) ->
+            {ok, tprot_header_val(), protocol()} | {error, _Reason};
+        (protocol(), tprot_data_tag()) ->
+            {ok, any(), protocol()} | {error, _Reason}.
+
+read(IProto, Type) ->
+    try read_frag(IProto, Type, []) of
+        {IProto2, Data} ->
+            {ok, Data, IProto2}
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
+
 read_union(IProto0, StructDef, Path) ->
     % {IProto1, ok} = read_frag(IProto0, struct_begin),
     {IProto1, Result} = read_union_loop(IProto0, StructDef, undefined, Path),
@@ -121,31 +156,6 @@ fill_default_struct(N, [FieldDef | Rest], Record) when element(5, FieldDef) =:= 
     fill_default_struct(N + 1, Rest, Record);
 fill_default_struct(N, [FieldDef | Rest], Record) ->
     fill_default_struct(N + 1, Rest, erlang:setelement(N, Record, element(5, FieldDef))).
-
--spec read
-        (protocol(), {struct, _Flavour, _Info}) ->
-            {ok, tuple(), protocol()} | {error, _Reason};
-        (protocol(), tprot_cont_tag()) ->
-            {ok, any(), protocol()} | {error, _Reason};
-        (protocol(), tprot_empty_tag()) ->
-            {ok, ok, protocol()} | {error, _Reason};
-        (protocol(), tprot_header_tag()) ->
-            {ok, tprot_header_val(), protocol()} | {error, _Reason};
-        (protocol(), tprot_data_tag()) ->
-            {ok, any(), protocol()} | {error, _Reason}.
-
-read(IProto, message_begin) ->
-    impl_read_message_begin(IProto);
-read(IProto, message_end) ->
-    {IProto, ok};
-read(IProto, Type) ->
-    try read_frag(IProto, Type, []) of
-        {IProto2, Data} ->
-            {ok, Data, IProto2}
-    catch
-        throw:Reason ->
-            {error, Reason}
-    end.
 
 -define(read_byte(V), V:8/integer-signed-big).
 -define(read_i16(V), V:16/integer-signed-big).
@@ -730,15 +740,16 @@ impl_read_message_begin(This0, Sz) when Sz band ?VERSION_MASK =:= ?VERSION_1 ->
     %% we're at version 1
     {This1, Name} = impl_read_string(This0),
     <<?read_i32(SeqId), This2/binary>> = This1,
-    {This2, #protocol_message_begin{name  = Name,
-                                    type  = Sz band ?TYPE_MASK,
-                                    seqid = SeqId}};
+    {ok, #protocol_message_begin{name  = Name,
+                                 type  = Sz band ?TYPE_MASK,
+                                 seqid = SeqId},
+         This2};
 impl_read_message_begin(_This, Sz) when Sz < 0 ->
     %% there's a version number but it's unexpected
-    throw({bad_binary_protocol_version, Sz});
+    {error, {bad_binary_protocol_version, Sz}};
 impl_read_message_begin(_This, _) ->
     %% strict_read is true and there's no version header; that's an error
-    throw(no_binary_protocol_version).
+    {error, no_binary_protocol_version}.
 
 % impl_read(This, message_end) -> {This, ok};
 
