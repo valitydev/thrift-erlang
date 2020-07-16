@@ -38,7 +38,9 @@
 
 -export([new/0,
          new/1,
-         write/2,
+         write/3,
+         write_message_begin/4,
+         write_message_end/1,
          read/2,
          skip/2,
          validate/1,
@@ -393,17 +395,22 @@ skip_list_loop(Proto0, Etype, Size) ->
 
 %%
 
--spec write(protocol(), any()) -> {ok, protocol()} | {error, _Reason}.
+-spec write_message_begin(protocol(),
+                            _Name :: binary(),
+                            _Type :: integer(),
+                            _SeqId :: integer()) -> protocol().
 
-write(Proto, #protocol_message_begin{name = Name, type = Type, seqid = SeqId}) ->
-    {ok, impl_write_message_begin(Proto, Name, Type, SeqId)};
-write(Proto, message_end) ->
-    {ok, impl_write_message_end(Proto)};
+write_message_begin(Proto, Name, Type, SeqId) ->
+    impl_write_message_begin(Proto, Name, Type, SeqId).
 
-write(Proto, TypeData) ->
-    write_safe(Proto, TypeData).
+-spec write_message_end(protocol()) -> protocol().
 
-write_safe(Proto, {Type, Data}) ->
+write_message_end(Proto) ->
+    Proto.
+
+-spec write(protocol(), any(), any()) -> {ok, protocol()} | {error, _Reason}.
+
+write(Proto, Type, Data) ->
     try
         {ok, write_frag(Proto, Type, Data, [])}
     catch
@@ -657,8 +664,6 @@ impl_write_message_begin(Trans0, Name, Type, Seqid) ->
     Trans2 = impl_write_string(Trans1, Name),
     Trans3 = impl_write_i32(Trans2, Seqid),
     Trans3.
-
-impl_write_message_end(Trans) -> Trans.
 
 impl_write_field_begin(Trans0, _Name, Type, Id) ->
     Trans1 = impl_write_byte(Trans0, Type),
