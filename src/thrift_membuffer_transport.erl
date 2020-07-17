@@ -34,11 +34,11 @@
 -type state() :: #t_membuffer{}.
 
 
--spec new() -> thrift_transport:t_transport().
+-spec new() -> {ok, thrift_transport:t_transport()}.
 
 new() -> new(<<>>).
 
--spec new(Buf::iodata()) -> thrift_transport:t_transport().
+-spec new(Buf::iodata()) -> {ok, thrift_transport:t_transport()}.
 
 new(Buf) when is_list(Buf) ->
   State = #t_membuffer{buffer = iolist_to_binary(Buf)},
@@ -80,4 +80,3 @@ flush(State = #t_membuffer{}) ->
 
 close(State = #t_membuffer{buffer = Buf}) ->
   {State, {ok, Buf}}.
-
