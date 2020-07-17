@@ -352,7 +352,7 @@ read_enum(<<?read_i32(IVal), IProto2/binary>>, Fields, Path) ->
             throw({invalid, Path, IVal})
     end.
 
--spec skip(protocol(), any()) -> {protocol(), ok}.
+-spec skip(protocol(), any()) -> protocol().
 
 skip(Proto0, struct) ->
     % Proto1 = read_frag(Proto0, struct_begin),
