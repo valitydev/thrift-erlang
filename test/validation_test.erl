@@ -25,28 +25,42 @@
 -include("gen-erlang/thrift_test_thrift.hrl").
 
 write_test_() ->
+  list_test_cases(fun write/2).
+
+write_codec_test_() ->
+  list_test_cases(fun write_codec/2).
+
+list_test_cases(Writer) ->
   [
-    ?_assertMatch(ok, write(byte, +42)),
-    ?_assertMatch(ok, write(byte, -42)),
-    ?_assertMatch({error, {invalid, [], _}}, write(byte, -200)),
-    ?_assertMatch(ok, write(string, <<"1337">>)),
-    ?_assertMatch({error, {invalid, [], _}}, write(string, "1337")),
-    ?_assertMatch({error, {invalid, [], _}}, write(string, 1337)),
+    ?_assertMatch(ok, Writer(byte, +42)),
+    ?_assertMatch(ok, Writer(byte, -42)),
+    ?_assertMatch({error, {invalid, [], _}}, Writer(byte, -200)),
+    ?_assertMatch(ok, Writer(string, <<"1337">>)),
+    ?_assertMatch({error, {invalid, [], _}}, Writer(string, "1337")),
+    ?_assertMatch({error, {invalid, [], _}}, Writer(string, 1337)),
     ?_assertMatch(
       ok,
-      write({struct, struct, {thrift_test_thrift, 'EmptyStruct'}}, #'EmptyStruct'{})
+      Writer({struct, struct, {thrift_test_thrift, 'EmptyStruct'}}, #'EmptyStruct'{})
     ),
     ?_assertMatch(
       {error, {invalid, [], _}},
-      write({struct, struct, {thrift_test_thrift, 'EmptyStruct'}}, #'Bools'{})
+      Writer({struct, struct, {thrift_test_thrift, 'EmptyStruct'}}, #'Bools'{})
     ),
     ?_assertMatch(
       ok,
-      write({struct, struct, {thrift_test_thrift, 'OneField'}}, #'OneField'{field = #'EmptyStruct'{}})
+      Writer({struct, struct, {thrift_test_thrift, 'OneField'}}, #'OneField'{field = #'EmptyStruct'{}})
     ),
     ?_assertMatch(
       {error, {invalid, [field], _}},
-      write({struct, struct, {thrift_test_thrift, 'OneField'}}, #'OneField'{field = #'Bools'{}})
+      Writer({struct, struct, {thrift_test_thrift, 'OneField'}}, #'OneField'{field = #'Bools'{}})
+    ),
+    ?_assertMatch(
+      ok,
+      Writer({struct, union, {thrift1151_thrift, 'UnionA'}}, {a, {'StructA', 32767}})
+    ),
+    ?_assertMatch(
+      {error, {invalid, [], _}},
+      Writer({struct, union, {thrift1151_thrift, 'UnionA'}}, {d, {'StructD', 65535}})
     )
   ].
 
@@ -55,3 +69,10 @@ write(Type, Data) ->
     {ok, Proto} = thrift_binary_protocol:new(Trans, [{strict_read, true}, {strict_write, true}]),
     {_Proto, Result} = thrift_protocol:write(Proto, {Type, Data}),
     Result.
+
+write_codec(Type, Data) ->
+  Proto = thrift_strict_binary_codec:new(),
+  case thrift_strict_binary_codec:write(Proto, Type, Data) of
+    {ok, _} -> ok;
+    Error   -> Error
+  end.
