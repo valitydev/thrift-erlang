@@ -22,7 +22,7 @@
 -type service() :: {module(), atom()}.
 -type fn()      :: atom().
 -type schema()  :: {struct, _, _}.
--type args()    :: [any()].
+-type args()    :: tuple().
 -type seqid()   :: integer().
 
 %% API
@@ -42,12 +42,12 @@ write_function_call(Buffer, Codec, Service, Function, Args, SeqId) ->
   end,
   FName = atom_to_binary(Function, latin1),
   Buffer1 = Codec:write_message_begin(Buffer, FName, MsgType, SeqId),
-  write_message(Buffer1, Codec, Function, Schema, Args).
+  write_message(Buffer1, Codec, Schema, Args).
 
--spec write_message(Buffer, module(), fn(), schema(), args()) ->
+-spec write_message(Buffer, module(), schema(), args()) ->
   {ok, Buffer} | {error, any()}.
-write_message(Buffer, Codec, Function, Schema, Args) ->
-  case Codec:write(Buffer, Schema, list_to_tuple([Function | Args])) of
+write_message(Buffer, Codec, Schema, Args) ->
+  case Codec:write(Buffer, Schema, Args) of
     {ok, Buffer1} ->
       {ok, Codec:write_message_end(Buffer1)};
     Error ->

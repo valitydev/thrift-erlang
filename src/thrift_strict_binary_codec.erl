@@ -536,7 +536,8 @@ write_frag(Proto0, {struct, union, StructDef}, Data, Path) ->
 
 write_frag(Proto0, {struct, _, StructDef}, Data, Path) ->
     % Proto1 = impl_write_struct_begin(Proto0, element(1, Data)),
-    Proto1 = struct_write_loop(Proto0, StructDef, Data, 2, Path),
+    Offset = tuple_size(Data) - length(StructDef),
+    Proto1 = struct_write_loop(Proto0, StructDef, Data, Offset + 1, Path),
     % Proto3 = impl_write_struct_end(Proto2),
     Proto1;
 
