@@ -232,7 +232,8 @@ read_frag(<<?read_i32(Sz), Proto/binary>>, string, _) ->
     read_data(Proto, Sz);
 
 read_frag(IProto, {struct, union, StructDef}, Path) when is_list(StructDef) ->
-    read_union(IProto, StructDef, Path);
+    % reading w/o validation here for easier handling of replies in the client codec
+    read_union_loop(IProto, StructDef, undefined, Path);
 read_frag(IProto, {struct, _, StructDef}, Path) when is_list(StructDef) ->
     read_struct(IProto, StructDef, undefined, Path);
 
