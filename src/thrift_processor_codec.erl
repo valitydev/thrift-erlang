@@ -108,7 +108,7 @@ write_reply(Buffer, Codec, Function, ReplyMessageType, ReplySchema, Reply, SeqId
             Error
     end.
 
-write_exception(Buffer, Codec, Service, Function, Exception, SeqId) ->
+write_exception(Buffer, Codec, Service, Function, Exception, SeqId) when is_tuple(Exception) ->
     ExceptionType = element(1, Exception),
     {struct, _, XInfo} = get_function_info(Service, Function, exceptions),
     %% Assuming we had a type1 exception, we'd get: [undefined, Exception, undefined]
@@ -122,8 +122,10 @@ write_exception(Buffer, Codec, Service, Function, Exception, SeqId) ->
             Reply = {ExceptionName, Exception},
             write_reply(Buffer, Codec, Function, ?tMessageType_REPLY, ReplySchema, Reply, SeqId);
         [] ->
-            {error, {bad_exception_type, ExceptionType}}
-    end.
+            {error, {bad_exception, Exception}}
+    end;
+write_exception(_Buffer, _Codec, _Service, _Function, Exception, _SeqId) ->
+    {error, {bad_exception, Exception}}.
 
 write_error(Buffer, Codec, Function, Error, SeqId) ->
     Message = unicode:characters_to_binary(io_lib:format("An error occurred: ~0p~n", [Error])),
