@@ -27,7 +27,7 @@
 
 -type service() :: {module(), atom()}.
 -type fn()      :: atom().
--type args()    :: [any()].
+-type args()    :: tuple().
 -type seqid()   :: integer().
 
 -spec read_function_call(Buffer, module(), service(), seqid()) ->
