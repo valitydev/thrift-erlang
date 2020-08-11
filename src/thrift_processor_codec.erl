@@ -77,6 +77,8 @@ read_function_params(Buffer, Codec, Service, Function, IType) ->
 write_function_result(Buffer, Codec, Service, Function, Result, SeqId) ->
     ReplyType  = get_function_info(Service, Function, reply_type),
     case Result of
+        ok when ReplyType == {struct, struct, []} ->
+            write_reply(Buffer, Codec, Function, ?tMessageType_REPLY, ReplyType, {?REPLY_TAG}, SeqId);
         {reply, ok} when ReplyType == {struct, struct, []} ->
             write_reply(Buffer, Codec, Function, ?tMessageType_REPLY, ReplyType, {?REPLY_TAG}, SeqId);
 
