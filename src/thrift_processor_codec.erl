@@ -124,16 +124,8 @@ write_exception(Buffer, Codec, Service, Function, Exception, SeqId) ->
             Reply = {ExceptionName, Exception},
             write_reply(Buffer, Codec, Function, ?tMessageType_REPLY, ReplySchema, Reply, SeqId);
         [] ->
-            write_unknown_exception(Buffer, Codec, Function, Exception, SeqId)
+            {error, {bad_exception_type, ExceptionType}}
     end.
-
-%%
-%% Called when an exception has been explicitly thrown by the service, but it was
-%% not one of the exceptions that was defined for the function.
-%%
-write_unknown_exception(Buffer, Codec, Function, Exception, SeqId) ->
-    write_error(Buffer, Codec, Function, {exception_not_declared_as_thrown,
-                                            Exception}, SeqId).
 
 write_error(Buffer, Codec, Function, Error, SeqId) ->
     Message = unicode:characters_to_binary(io_lib:format("An error occurred: ~0p~n", [Error])),
