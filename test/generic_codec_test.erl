@@ -69,9 +69,9 @@ roundtrip(Service, Function, Args, Result) ->
 roundtrip(Service, Type, Function, Args, Result) ->
   B0 = ?CODEC:new(),
   {ok, B1} = thrift_client_codec:write_function_call(B0, ?CODEC, Service, Function, Args, ?SEQID),
-  ReadCallResult = thrift_processor_codec:read_function_call(B1, ?CODEC, Service, ?SEQID),
-  ?assertMatch({ok, {Type, Function, Args}, _}, ReadCallResult),
-  {ok, _, B2} = ReadCallResult,
+  ReadCallResult = thrift_processor_codec:read_function_call(B1, ?CODEC, Service),
+  ?assertMatch({ok, ?SEQID, {Type, Function, Args}, _}, ReadCallResult),
+  {ok, _, _, B2} = ReadCallResult,
   {ok, B3} = thrift_processor_codec:write_function_result(B2, ?CODEC, Service, Function, Result, ?SEQID),
   ReadReplyResult = thrift_client_codec:read_function_result(B3, ?CODEC, Service, Function, ?SEQID),
   ?assertMatch({ok, Result, _}, ReadReplyResult).

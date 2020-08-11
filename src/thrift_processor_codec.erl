@@ -19,7 +19,7 @@
 
 -module(thrift_processor_codec).
 
--export([read_function_call/4]).
+-export([read_function_call/3]).
 -export([write_function_result/6]).
 
 -include("thrift_constants.hrl").
@@ -30,27 +30,25 @@
 -type args()    :: tuple().
 -type seqid()   :: integer().
 
--spec read_function_call(Buffer, module(), service(), seqid()) ->
-    {ok, {call | oneway, fn(), args()}, Buffer} | {error, any()}.
+-spec read_function_call(Buffer, module(), service()) ->
+    {ok, seqid(), {call | oneway, fn(), args()}, Buffer} | {error, any()}.
 
-read_function_call(Buffer, Codec, Service, SeqId) ->
+read_function_call(Buffer, Codec, Service) ->
     case Codec:read_message_begin(Buffer) of
         {ok, #protocol_message_begin{name = FName,
                                      type = Type,
                                      seqid = SeqId},
              Buffer1} when Type =:= ?tMessageType_CALL; Type =:= ?tMessageType_ONEWAY ->
                 try erlang:binary_to_existing_atom(FName, latin1) of
-                    Function -> read_function_params(Buffer1, Codec, Service, Function, Type)
+                    Function -> read_function_params(Buffer1, Codec, Service, Function, Type, SeqId)
                 catch
                     error:badarg -> {error, {bad_function_name, FName}}
                 end;
-        {ok, #protocol_message_begin{seqid = InSeqId}, _Buffer} when InSeqId =/= SeqId ->
-                {error, {bad_seq_id, InSeqId}};
         {error, _} = Error ->
                 Error
     end.
 
-read_function_params(Buffer, Codec, Service, Function, IType) ->
+read_function_params(Buffer, Codec, Service, Function, IType, SeqId) ->
     InParams = get_function_info(Service, Function, params_type),
     Type = case IType of
         ?tMessageType_CALL   -> call;
@@ -59,7 +57,7 @@ read_function_params(Buffer, Codec, Service, Function, IType) ->
     case Codec:read(Buffer, InParams) of
         {ok, Params, Buffer1} ->
             {ok, ok, Buffer2} = Codec:read_message_end(Buffer1),
-            {ok, {Type, Function, Params}, Buffer2};
+            {ok, SeqId, {Type, Function, Params}, Buffer2};
         Error ->
             Error
     end.
