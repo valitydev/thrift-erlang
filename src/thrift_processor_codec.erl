@@ -22,6 +22,8 @@
 -export([read_function_call/3]).
 -export([write_function_result/6]).
 
+-export([match_exception/3]).
+
 -include("thrift_constants.hrl").
 -include("thrift_protocol.hrl").
 
@@ -62,9 +64,13 @@ read_function_params(Buffer, Codec, Service, Function, IType, SeqId) ->
             Error
     end.
 
+-type exception_typename() ::
+    {_Type, _Name :: atom()}.
+
 -type result() :: ok |
                   {reply, any()} |
-                  {exception, any()} |
+                  {exception, tuple()} |
+                  {exception, exception_typename(), tuple()} |
                   {error, {_Class :: atom(), _Reason, _Stacktrace}}.
 
 -spec write_function_result(Buffer, module(), service(), fn(), result(), seqid()) ->
@@ -92,6 +98,9 @@ write_function_result(Buffer, Codec, Service, Function, Result, SeqId) ->
         {exception, Exception} ->
             write_exception(Buffer, Codec, Service, Function, Exception, SeqId);
 
+        {exception, TypeName, Exception} ->
+            write_exception(Buffer, Codec, Service, Function, TypeName, Exception, SeqId);
+
         {error, Error} ->
             write_error(Buffer, Codec, Function, Error, SeqId)
 
@@ -108,7 +117,24 @@ write_reply(Buffer, Codec, Function, ReplyMessageType, ReplySchema, Reply, SeqId
             Error
     end.
 
-write_exception(Buffer, Codec, Service, Function, Exception, SeqId) when is_tuple(Exception) ->
+write_exception(Buffer, Codec, Service, Function, Exception, SeqId) ->
+    case match_exception(Service, Function, Exception) of
+        {ok, TypeName} ->
+            write_exception(Buffer, Codec, Service, Function, TypeName, Exception, SeqId);
+        Error ->
+            Error
+    end.
+
+write_exception(Buffer, Codec, Service, Function, {_Type, Name}, Exception, SeqId) ->
+    {struct, _, XInfo} = get_function_info(Service, Function, exceptions),
+    ReplySchema = {struct, union, XInfo},
+    Reply = {Name, Exception},
+    write_reply(Buffer, Codec, Function, ?tMessageType_REPLY, ReplySchema, Reply, SeqId).
+
+-spec match_exception(service(), fn(), _Exception) ->
+    {ok, exception_typename()} |
+    {error, any()}.
+match_exception(Service, Function, Exception) when is_tuple(Exception) ->
     ExceptionType = element(1, Exception),
     {struct, _, XInfo} = get_function_info(Service, Function, exceptions),
     %% Assuming we had a type1 exception, we'd get: [undefined, Exception, undefined]
@@ -117,15 +143,13 @@ write_exception(Buffer, Codec, Service, Function, Exception, SeqId) when is_tupl
                       Module:record_name(Type) =/= ExceptionType
                  end,
     case lists:dropwhile(FindExcFun, XInfo) of
-        [{_Fid, _, _Type, ExceptionName, _} | _] ->
-            ReplySchema = {struct, union, XInfo},
-            Reply = {ExceptionName, Exception},
-            write_reply(Buffer, Codec, Function, ?tMessageType_REPLY, ReplySchema, Reply, SeqId);
+        [{_Fid, _, Type, Name, _} | _] ->
+            {ok, {Type, Name}};
         [] ->
-            {error, {bad_exception, Exception}}
+            {error, bad_exception}
     end;
-write_exception(_Buffer, _Codec, _Service, _Function, Exception, _SeqId) ->
-    {error, {bad_exception, Exception}}.
+match_exception(_Service, _Function, _Exception) ->
+    {error, bad_exception}.
 
 write_error(Buffer, Codec, Function, Error, SeqId) ->
     Message = unicode:characters_to_binary(io_lib:format("An error occurred: ~0p~n", [Error])),
