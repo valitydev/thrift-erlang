@@ -55,11 +55,22 @@ call_test_() ->
     ))
   ].
 
+oneway_test_() ->
+  [
+    ?_test(roundtrip(?SERVICE, oneway, 'testOneway',
+      {420},
+      ok
+    ))
+  ].
+
 roundtrip(Service, Function, Args, Result) ->
+  roundtrip(Service, call, Function, Args, Result).
+
+roundtrip(Service, Type, Function, Args, Result) ->
   B0 = ?CODEC:new(),
   {ok, B1} = thrift_client_codec:write_function_call(B0, ?CODEC, Service, Function, Args, ?SEQID),
   ReadCallResult = thrift_processor_codec:read_function_call(B1, ?CODEC, Service, ?SEQID),
-  ?assertMatch({ok, {call, Function, Args}, _}, ReadCallResult),
+  ?assertMatch({ok, {Type, Function, Args}, _}, ReadCallResult),
   {ok, _, B2} = ReadCallResult,
   {ok, B3} = thrift_processor_codec:write_function_result(B2, ?CODEC, Service, Function, Result, ?SEQID),
   ReadReplyResult = thrift_client_codec:read_function_result(B3, ?CODEC, Service, Function, ?SEQID),
