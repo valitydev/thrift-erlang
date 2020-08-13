@@ -141,21 +141,22 @@ read_union(IProto0, StructDef, Path) ->
     end.
 
 read_struct(IProto0, StructDef, undefined, Path) ->
-    Tuple = erlang:make_tuple(length(StructDef), undefined),
-    read_struct_loop(IProto0, StructDef, 1, Tuple, Path);
+    {IProto1, Acc} = read_struct_loop(IProto0, StructDef, 1, [], Path),
+    Record = erlang:make_tuple(length(StructDef), undefined, Acc),
+    {IProto1, validate_struct(StructDef, Record, 1, Path)};
 read_struct(IProto0, StructDef, Tag, Path) ->
     % If we want a tagged tuple, we need to offset all the tuple indices
     % by 1 to avoid overwriting the tag.
-    Tuple = erlang:make_tuple(length(StructDef) + 1, undefined),
-    Record = fill_default_struct(2, StructDef, erlang:setelement(1, Tuple, Tag)),
-    read_struct_loop(IProto0, StructDef, 2, Record, Path).
+    {IProto1, Acc} = read_struct_loop(IProto0, StructDef, 2, [{1, Tag}], Path),
+    Record = erlang:make_tuple(length(StructDef) + 1, undefined, fill_default_struct(2, StructDef, Acc)),
+    {IProto1, validate_struct(StructDef, Record, 2, Path)}.
 
-fill_default_struct(_N, [], Record) ->
-    Record;
-fill_default_struct(N, [FieldDef | Rest], Record) when element(5, FieldDef) =:= undefined ->
-    fill_default_struct(N + 1, Rest, Record);
-fill_default_struct(N, [FieldDef | Rest], Record) ->
-    fill_default_struct(N + 1, Rest, erlang:setelement(N, Record, element(5, FieldDef))).
+fill_default_struct(_, [], Acc) ->
+    Acc;
+fill_default_struct(N, [FieldDef | Rest], Acc) when element(5, FieldDef) =:= undefined ->
+    fill_default_struct(N + 1, Rest, Acc);
+fill_default_struct(N, [FieldDef | Rest], Acc) ->
+    fill_default_struct(N + 1, Rest, [{N, element(5, FieldDef)} | Acc]).
 
 -define(read_byte(V), V:8/integer-signed-big).
 -define(read_i16(V), V:16/integer-signed-big).
@@ -295,9 +296,9 @@ set_union_val(Name, Val, undefined) ->
 set_union_val(Name, Val, Acc) ->
     [{Name, Val} | Acc].
 
-read_struct_loop(<<?read_byte(?tType_STOP), IProto1/binary>>, StructDef, Offset, Acc, Path) ->
+read_struct_loop(<<?read_byte(?tType_STOP), IProto1/binary>>, _StructDef, _Offset, Acc, _Path) ->
     % {IProto2, ok} = read_frag(IProto1, struct_end),
-    {IProto1, validate_struct(StructDef, Acc, Offset, Path)};
+    {IProto1, Acc};
 read_struct_loop(<<?read_byte(FType), ?read_i16(Fid), IProto1/binary>>, StructDef, Offset, Acc, Path) ->
     case find_struct_field(Fid, StructDef, Offset) of
         {Idx, Name, Type} ->
@@ -305,7 +306,7 @@ read_struct_loop(<<?read_byte(FType), ?read_i16(Fid), IProto1/binary>>, StructDe
                 FType ->
                     {IProto2, Val} = read_frag(IProto1, Type, [Name | Path]),
                     % {IProto3, ok} = read_frag(IProto2, field_end),
-                    NewAcc = setelement(Idx, Acc, Val),
+                    NewAcc = [{Idx, Val} | Acc],
                     read_struct_loop(IProto2, StructDef, Offset, NewAcc, Path);
                 _Expected ->
                     IProto2 = skip_mistyped_field(IProto1, Name, FType),

@@ -30,6 +30,11 @@ write_test_() ->
 write_codec_test_() ->
   list_test_cases(fun write_codec/2).
 
+roundtrip_test_() ->
+  [
+    ?_test(roundtrip({struct, struct, {thrift_test_thrift, 'BoolTest'}}, #'BoolTest'{b = false}))
+  ].
+
 list_test_cases(Writer) ->
   [
     ?_assertMatch(ok, Writer(byte, +42)),
@@ -76,3 +81,9 @@ write_codec(Type, Data) ->
     {ok, _} -> ok;
     Error   -> Error
   end.
+
+roundtrip(Type, Value) ->
+  B0 = thrift_strict_binary_codec:new(),
+  {ok, B1} = thrift_strict_binary_codec:write(B0, Type, Value),
+  {ok, Value, B2} = thrift_strict_binary_codec:read(B1, Type),
+  <<>> = thrift_strict_binary_codec:close(B2).
