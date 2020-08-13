@@ -63,6 +63,14 @@ oneway_test_() ->
     ))
   ].
 
+error_test_() ->
+  [
+    ?_assertMatch(
+      {error, {invalid, ['$reply'], _}},
+      write_result(?SERVICE, 'testStruct', {reply, blarg})
+    )
+  ].
+
 roundtrip(Service, Function, Args, Result) ->
   roundtrip(Service, call, Function, Args, Result).
 
@@ -75,3 +83,7 @@ roundtrip(Service, Type, Function, Args, Result) ->
   {ok, B3} = thrift_processor_codec:write_function_result(B2, ?CODEC, Service, Function, Result, ?SEQID),
   ReadReplyResult = thrift_client_codec:read_function_result(B3, ?CODEC, Service, Function, ?SEQID),
   ?assertMatch({ok, Result, _}, ReadReplyResult).
+
+write_result(Service, Function, Result) ->
+  B0 = ?CODEC:new(),
+  thrift_processor_codec:write_function_result(B0, ?CODEC, Service, Function, Result, ?SEQID).
