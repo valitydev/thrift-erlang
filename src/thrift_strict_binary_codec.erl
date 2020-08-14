@@ -52,19 +52,19 @@
 -include("thrift_constants.hrl").
 -include("thrift_protocol.hrl").
 
--opaque protocol() :: binary().
+-opaque buffer() :: binary().
 
--export_type([protocol/0]).
+-export_type([buffer/0]).
 
--spec new() -> protocol().
+-spec new() -> buffer().
 new() ->
     new(<<>>).
 
--spec new(iodata()) -> protocol().
+-spec new(iodata()) -> buffer().
 new(Buf) ->
     impl_transport_new(Buf).
 
--spec close(protocol()) -> binary().
+-spec close(buffer()) -> binary().
 close(Proto) ->
     Proto.
 
@@ -97,29 +97,29 @@ term_to_typeid({map, _, _}) -> ?tType_MAP;
 term_to_typeid({set, _}) -> ?tType_SET;
 term_to_typeid({list, _}) -> ?tType_LIST.
 
--spec read_message_begin(protocol()) ->
-    {ok, #protocol_message_begin{}, protocol()} | {error, any()}.
+-spec read_message_begin(buffer()) ->
+    {ok, #protocol_message_begin{}, buffer()} | {error, any()}.
 
 read_message_begin(IProto) ->
     impl_read_message_begin(IProto).
 
--spec read_message_end(protocol()) ->
-    {ok, ok, protocol()}.
+-spec read_message_end(buffer()) ->
+    {ok, ok, buffer()}.
 
 read_message_end(IProto) ->
     {ok, ok, IProto}.
 
 -spec read
-        (protocol(), {struct, _Flavour, _Info}) ->
-            {ok, tuple(), protocol()} | {error, _Reason};
-        (protocol(), tprot_cont_tag()) ->
-            {ok, any(), protocol()} | {error, _Reason};
-        (protocol(), tprot_empty_tag()) ->
-            {ok, ok, protocol()} | {error, _Reason};
-        (protocol(), tprot_header_tag()) ->
-            {ok, tprot_header_val(), protocol()} | {error, _Reason};
-        (protocol(), tprot_data_tag()) ->
-            {ok, any(), protocol()} | {error, _Reason}.
+        (buffer(), {struct, _Flavour, _Info}) ->
+            {ok, tuple(), buffer()} | {error, _Reason};
+        (buffer(), tprot_cont_tag()) ->
+            {ok, any(), buffer()} | {error, _Reason};
+        (buffer(), tprot_empty_tag()) ->
+            {ok, ok, buffer()} | {error, _Reason};
+        (buffer(), tprot_header_tag()) ->
+            {ok, tprot_header_val(), buffer()} | {error, _Reason};
+        (buffer(), tprot_data_tag()) ->
+            {ok, any(), buffer()} | {error, _Reason}.
 
 read(IProto, Type) ->
     try read_frag(IProto, Type, []) of
@@ -241,7 +241,7 @@ read_frag(IProto, {struct, _, StructDef}, Path) when is_list(StructDef) ->
 read_frag(Proto, Type, Path) ->
     throw({unexpected, Path, Type, Proto}).
 
--spec read_list_loop(protocol(), any(), non_neg_integer(), [atom()]) -> {protocol(), [any()]}.
+-spec read_list_loop(buffer(), any(), non_neg_integer(), [atom()]) -> {buffer(), [any()]}.
 read_list_loop(Proto0, ValType, Size, Path) ->
     read_list_loop(Proto0, ValType, Size, [], Path).
 
@@ -251,7 +251,7 @@ read_list_loop(Proto0, ValType, Left, List, Path) ->
     {Proto1, Val} = read_frag(Proto0, ValType, Path),
     read_list_loop(Proto1, ValType, Left - 1, [Val | List], Path).
 
--spec read_map_loop(protocol(), any(), any(), non_neg_integer(), [atom()]) -> {protocol(), map()}.
+-spec read_map_loop(buffer(), any(), any(), non_neg_integer(), [atom()]) -> {buffer(), map()}.
 read_map_loop(Proto0, KeyType, ValType, Size, Path) ->
     read_map_loop(Proto0, KeyType, ValType, Size, #{}, Path).
 
@@ -262,7 +262,7 @@ read_map_loop(Proto0, KeyType, ValType, Left, Map, Path) ->
     {Proto2, Val} = read_frag(Proto1, ValType, Path),
     read_map_loop(Proto2, KeyType, ValType, Left - 1, maps:put(Key, Val, Map), Path).
 
--spec read_set_loop(protocol(), any(), non_neg_integer(), [atom()]) -> {protocol(), ordsets:ordset(any())}.
+-spec read_set_loop(buffer(), any(), non_neg_integer(), [atom()]) -> {buffer(), ordsets:ordset(any())}.
 read_set_loop(Proto0, ValType, Size, Path) ->
     read_set_loop(Proto0, ValType, Size, ordsets:new(), Path).
 
@@ -354,7 +354,7 @@ read_enum(<<?read_i32(IVal), IProto2/binary>>, Fields, Path) ->
             throw({invalid, Path, IVal})
     end.
 
--spec skip(protocol(), any()) -> protocol().
+-spec skip(buffer(), any()) -> buffer().
 
 skip(Proto0, struct) ->
     % Proto1 = read_frag(Proto0, struct_begin),
@@ -407,20 +407,20 @@ skip_list_loop(Proto0, Etype, Size) ->
 
 %%
 
--spec write_message_begin(protocol(),
+-spec write_message_begin(buffer(),
                             _Name :: binary(),
                             _Type :: integer(),
-                            _SeqId :: integer()) -> protocol().
+                            _SeqId :: integer()) -> buffer().
 
 write_message_begin(Proto, Name, Type, SeqId) ->
     impl_write_message_begin(Proto, Name, Type, SeqId).
 
--spec write_message_end(protocol()) -> protocol().
+-spec write_message_end(buffer()) -> buffer().
 
 write_message_end(Proto) ->
     Proto.
 
--spec write(protocol(), any(), any()) -> {ok, protocol()} | {error, _Reason}.
+-spec write(buffer(), any(), any()) -> {ok, buffer()} | {error, _Reason}.
 
 write(Proto, Type, Data) ->
     try
@@ -770,8 +770,8 @@ impl_read_message_begin(_This, _) ->
 impl_read_string(<<?read_i32(Sz), This/binary>>) ->
     read_data(This, Sz).
 
--spec read_data(protocol(), non_neg_integer()) ->
-    {protocol(), binary()}.
+-spec read_data(buffer(), non_neg_integer()) ->
+    {buffer(), binary()}.
 read_data(This, 0) ->
     {This, <<>>};
 read_data(This, Len) ->
