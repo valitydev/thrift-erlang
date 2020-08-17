@@ -552,6 +552,7 @@ validate(_Req, {list, Type}, Data, Path)
     lists:foreach(fun (E) -> validate(required, Type, E, Path) end, Data);
 validate(_Req, {set, Type}, Data, Path)
   when is_list(Data) ->
+    _ = ordsets:is_set(Data) orelse throw({invalid, Path, Type, Data}),
     lists:foreach(fun (E) -> validate(required, Type, E, Path) end, ordsets:to_list(Data));
 validate(_Req, {map, KType, VType}, Data, Path)
   when is_map(Data) ->

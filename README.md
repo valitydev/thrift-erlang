@@ -19,6 +19,13 @@ KIND, either express or implied. See the License for the
 specific language governing permissions and limitations
 under the License.
 
+## Differences from upstream ##
+
+* Reads and writes are validated.
+* Enum values are _atoms_.
+* Maps represented with native Erlang _maps_.
+* Sets represented with _ordsets_.
+
 ## Release Notes ##
 
 ### 0.9.2 ###

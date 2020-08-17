@@ -501,14 +501,19 @@ write_frag(Proto0, {map, KeyType, ValType}, Data, Path)
 
 write_frag(Proto0, {set, Type}, Data, Path)
   when is_list(Data) ->
-    Proto1 = impl_write_set_begin(Proto0, term_to_typeid(Type), ordsets:size(Data)),
-    Proto2 = ordsets:fold(fun(Elem, ProtoIn) ->
-                            write_frag(ProtoIn, Type, Elem, Path)
-                       end,
-                       Proto1,
-                       Data),
-    % Proto3 = impl_write_set_end(Proto2),
-    Proto2;
+    case set_size(Data) of
+        Size when is_integer(Size) ->
+            Proto1 = impl_write_set_begin(Proto0, term_to_typeid(Type), Size),
+            Proto2 = ordsets:fold(fun(Elem, ProtoIn) ->
+                                    write_frag(ProtoIn, Type, Elem, Path)
+                            end,
+                            Proto1,
+                            Data),
+            % Proto3 = impl_write_set_end(Proto2),
+            Proto2;
+        false ->
+            throw({invalid, Path, Type, Data})
+    end;
 
 write_frag(Proto0, string, Data, _)
   when is_binary(Data) ->
@@ -562,6 +567,18 @@ struct_write_loop(Proto0, [{Fid, Req, Type, Name, _Default} | RestStructDef], St
 struct_write_loop(Proto, [], _, _, _) ->
     impl_write_field_stop(Proto).
 
+-spec set_size(ordsets:ordset(any())) ->
+    non_neg_integer() | false.
+%% Returns ordset cardinality unless ordset is malformed, otherwise returns `false`.
+%% We knowingly abuse the inner structure of the `ordset()` type here.
+set_size([E|Es]) -> set_size(Es, E, 1);
+set_size([]) -> 0;
+set_size(_) -> false.
+
+set_size([E2|Es], E1, S) when E1 < E2 -> set_size(Es, E2, S + 1);
+set_size([_|_], _, _) -> false;
+set_size([], _, S) -> S.
+
 -spec validate(tprot_header_val() | tprot_header_tag() | tprot_empty_tag() | field_stop | TypeData) ->
     ok | {error, {invalid, Location :: [atom()], Value :: term()}} when
         TypeData :: {Type, Data},
@@ -596,6 +613,7 @@ validate(_Req, {list, Type}, Data, Path)
     lists:foreach(fun (E) -> validate(required, Type, E, Path) end, Data);
 validate(_Req, {set, Type}, Data, Path)
   when is_list(Data) ->
+    _ = ordsets:is_set(Data) orelse throw({invalid, Path, Type, Data}),
     lists:foreach(fun (E) -> validate(required, Type, E, Path) end, ordsets:to_list(Data));
 validate(_Req, {map, KType, VType}, Data, Path)
   when is_map(Data) ->

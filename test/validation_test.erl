@@ -32,7 +32,11 @@ write_codec_test_() ->
 
 roundtrip_test_() ->
   [
-    ?_test(roundtrip({struct, struct, {thrift_test_thrift, 'BoolTest'}}, #'BoolTest'{b = false}))
+    ?_test(roundtrip({struct, struct, {thrift_test_thrift, 'BoolTest'}}, #'BoolTest'{b = false})),
+    ?_test(roundtrip(
+      {struct, struct, {thrift_test_thrift, 'VersioningTestV2'}},
+      #'VersioningTestV2'{newset = ordsets:from_list([3, 2, 1])}
+    ))
   ].
 
 list_test_cases(Writer) ->
@@ -48,8 +52,18 @@ list_test_cases(Writer) ->
       Writer({struct, struct, {thrift_test_thrift, 'EmptyStruct'}}, #'EmptyStruct'{})
     ),
     ?_assertMatch(
-      {error, {invalid, [], _}},
-      Writer({struct, struct, {thrift_test_thrift, 'EmptyStruct'}}, #'Bools'{})
+      ok,
+      Writer(
+        {struct, struct, {thrift_test_thrift, 'VersioningTestV2'}},
+        #'VersioningTestV2'{newset = ordsets:from_list([3, 2, 1])}
+      )
+    ),
+    ?_assertMatch(
+      {error, {invalid, [newset], _}},
+      Writer(
+        {struct, struct, {thrift_test_thrift, 'VersioningTestV2'}},
+        #'VersioningTestV2'{newset = [3, 2, 1]}
+      )
     ),
     ?_assertMatch(
       ok,
