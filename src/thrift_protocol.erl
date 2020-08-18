@@ -377,123 +377,145 @@ skip_list_loop(Proto0, Map = #protocol_list_begin{etype = Etype, size = Size}) -
 
 write(Proto, TypeData) ->
     case validate(TypeData) of
-        ok -> write_frag(Proto, TypeData);
+        ok -> write_safe(Proto, TypeData);
         Error -> {Proto, Error}
     end.
 
-write_frag(Proto0, {{struct, union, StructDef}, {Name, Value}}, StructName)
-  when is_list(StructDef) ->
-    {Proto1, ok} = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
-    {Proto2, ok} = struct_write_loop(Proto1, [lists:keyfind(Name, 4, StructDef)], [Value]),
-    {Proto3, ok} = write_frag(Proto2, struct_end),
-    {Proto3, ok};
+write_safe(Proto, {Type, Data}) ->
+    try {write_frag(Proto, Type, Data), ok} catch
+        {?MODULE, ProtoError} -> ProtoError
+    end;
+write_safe(Proto, Data) ->
+    try {write_frag(Proto, Data), ok} catch
+        {?MODULE, ProtoError} -> ProtoError
+    end.
 
-write_frag(Proto0, {{struct, _, StructDef}, Data}, StructName)
-  when is_list(StructDef), is_tuple(Data), length(StructDef) == size(Data) - 1 ->
-    [_ | Elems] = tuple_to_list(Data),
-    {Proto1, ok} = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
-    {Proto2, ok} = struct_write_loop(Proto1, StructDef, Elems),
-    {Proto3, ok} = write_frag(Proto2, struct_end),
-    {Proto3, ok}.
+write_frag(Proto0, {struct, union, StructDef}, {Name, Value}, StructName)
+  when is_list(StructDef) ->
+    {Fid, _Req, Type, Name, _Default} = lists:keyfind(Name, 4, StructDef),
+    Proto1 = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
+    Proto2 = write_frag(Proto1, #protocol_field_begin{
+                                    name = Name,
+                                    type = term_to_typeid(Type),
+                                    id = Fid
+                                }),
+    Proto3 = write_frag(Proto2, Type, Value),
+    Proto4 = write_frag(Proto3, field_end),
+    Proto5 = write_frag(Proto4, field_stop),
+    Proto6 = write_frag(Proto5, struct_end),
+    Proto6;
+
+write_frag(Proto0, {struct, _, StructDef}, Data, StructName)
+  when is_list(StructDef), is_tuple(Data) ->
+    Proto1 = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
+    Proto2 = struct_write_loop(Proto1, StructDef, Data, 2),
+    Proto3 = write_frag(Proto2, struct_end),
+    Proto3.
 
 %% thrift client specific stuff
-write_frag(Proto0, {{struct, union, StructDef}, {_Name, _Value}} = TypeData)
+write_frag(Proto0, {struct, union, StructDef} = Type, {_Name, _Value} = Data)
   when is_list(StructDef) ->
-    write_frag(Proto0, TypeData, undefined);
+    write_frag(Proto0, Type, Data, undefined);
 
-write_frag(Proto0, {{struct, _, StructDef}, Data})
-  when is_list(StructDef), is_tuple(Data), length(StructDef) == size(Data) - 1 ->
-    [StructName | Elems] = tuple_to_list(Data),
-    {Proto1, ok} = write_frag(Proto0, #protocol_struct_begin{name = StructName}),
-    {Proto2, ok} = struct_write_loop(Proto1, StructDef, Elems),
-    {Proto3, ok} = write_frag(Proto2, struct_end),
-    {Proto3, ok};
+write_frag(Proto0, {struct, _, StructDef}, Data)
+  when is_list(StructDef), is_tuple(Data) ->
+    Proto1 = write_frag(Proto0, #protocol_struct_begin{name = element(1, Data)}),
+    Proto2 = struct_write_loop(Proto1, StructDef, Data, 2),
+    Proto3 = write_frag(Proto2, struct_end),
+    Proto3;
 
-write_frag(Proto, {{struct, _, {Module, StructureName}}, Data})
+write_frag(Proto, {struct, _, {Module, StructureName}}, Data)
   when is_atom(Module),
        is_atom(StructureName) ->
-    write_frag(Proto, {Module:struct_info(StructureName), Data}, StructureName);
+    write_frag(Proto, Module:struct_info(StructureName), Data, StructureName);
 
-write_frag(Proto, {{enum, Fields}, Data}) when is_list(Fields), is_atom(Data) ->
+write_frag(Proto, {enum, Fields}, Data) when is_list(Fields), is_atom(Data) ->
     {Data, IVal} = lists:keyfind(Data, 1, Fields),
     write_frag(Proto, {i32, IVal});
 
-write_frag(Proto, {{enum, {Module, EnumName}}, Data})
+write_frag(Proto, {enum, {Module, EnumName}}, Data)
   when is_atom(Module),
        is_atom(EnumName) ->
-    write_frag(Proto, {Module:enum_info(EnumName), Data});
+    write_frag(Proto, Module:enum_info(EnumName), Data);
 
-write_frag(Proto0, {{list, Type}, Data})
+write_frag(Proto0, {list, Type}, Data)
   when is_list(Data) ->
-    {Proto1, ok} = write_frag(Proto0,
+    Proto1 = write_frag(Proto0,
                #protocol_list_begin{
                  etype = term_to_typeid(Type),
                  size = length(Data)
                 }),
     Proto2 = lists:foldl(fun(Elem, ProtoIn) ->
-                                 {ProtoOut, ok} = write_frag(ProtoIn, {Type, Elem}),
-                                 ProtoOut
+                            write_frag(ProtoIn, Type, Elem)
                          end,
                          Proto1,
                          Data),
-    {Proto3, ok} = write_frag(Proto2, list_end),
-    {Proto3, ok};
+    Proto3 = write_frag(Proto2, list_end),
+    Proto3;
 
-write_frag(Proto0, {{map, KeyType, ValType}, Data}) ->
-    {Proto1, ok} = write_frag(Proto0,
+write_frag(Proto0, {map, KeyType, ValType}, Data) ->
+    Proto1 = write_frag(Proto0,
                          #protocol_map_begin{
                            ktype = term_to_typeid(KeyType),
                            vtype = term_to_typeid(ValType),
                            size  = map_size(Data)
                           }),
     Proto2 = maps:fold(fun(KeyData, ValData, ProtoS0) ->
-                               {ProtoS1, ok} = write_frag(ProtoS0, {KeyType, KeyData}),
-                               {ProtoS2, ok} = write_frag(ProtoS1, {ValType, ValData}),
+                               ProtoS1 = write_frag(ProtoS0, KeyType, KeyData),
+                               ProtoS2 = write_frag(ProtoS1, ValType, ValData),
                                ProtoS2
                        end,
                        Proto1,
                        Data),
-    {Proto3, ok} = write_frag(Proto2, map_end),
-    {Proto3, ok};
+    Proto3 = write_frag(Proto2, map_end),
+    Proto3;
 
-write_frag(Proto0, {{set, Type}, Data}) ->
-    true = ordsets:is_set(Data),
-    {Proto1, ok} = write_frag(Proto0,
+write_frag(Proto0, {set, Type}, Data) ->
+    Proto1 = write_frag(Proto0,
                          #protocol_set_begin{
                            etype = term_to_typeid(Type),
                            size  = ordsets:size(Data)
                           }),
     Proto2 = ordsets:fold(fun(Elem, ProtoIn) ->
-                               {ProtoOut, ok} = write_frag(ProtoIn, {Type, Elem}),
-                               ProtoOut
+                            write_frag(ProtoIn, Type, Elem)
                        end,
                        Proto1,
                        Data),
-    {Proto3, ok} = write_frag(Proto2, set_end),
-    {Proto3, ok};
+    Proto3 = write_frag(Proto2, set_end),
+    Proto3;
+
+write_frag(Proto0, Type, Data) ->
+    write_frag(Proto0, {Type, Data}).
 
 write_frag(Proto = #protocol{module = Module,
                         data = ModuleData}, Data) ->
     {NewData, Result} = Module:write(ModuleData, Data),
-    {Proto#protocol{data = NewData}, Result}.
+    NewProto = Proto#protocol{data = NewData},
+    case Result of
+        ok ->
+            NewProto;
+        Error ->
+            throw({?MODULE, {NewProto, Error}})
+    end.
 
-struct_write_loop(Proto0, [{Fid, _Req, Type, Name, _Default} | RestStructDef], [Data | RestData]) ->
+struct_write_loop(Proto0, [{Fid, _Req, Type, Name, _Default} | RestStructDef], Struct, Idx) ->
+    Data = element(Idx, Struct),
     NewProto = case Data of
                    undefined ->
                        Proto0; % null fields are skipped in response
                    _ ->
-                       {Proto1, ok} = write_frag(Proto0,
+                       Proto1 = write_frag(Proto0,
                                            #protocol_field_begin{
                                              name = Name,
                                              type = term_to_typeid(Type),
                                              id = Fid
                                             }),
-                       {Proto2, ok} = write_frag(Proto1, {Type, Data}),
-                       {Proto3, ok} = write_frag(Proto2, field_end),
+                       Proto2 = write_frag(Proto1, Type, Data),
+                       Proto3 = write_frag(Proto2, field_end),
                        Proto3
                end,
-    struct_write_loop(NewProto, RestStructDef, RestData);
-struct_write_loop(Proto, [], []) ->
+    struct_write_loop(NewProto, RestStructDef, Struct, Idx + 1);
+struct_write_loop(Proto, [], _, _) ->
     write_frag(Proto, field_stop).
 
 -spec validate(tprot_header_val() | tprot_header_tag() | tprot_empty_tag() | field_stop | TypeData) ->
@@ -516,84 +538,83 @@ validate(list_end) -> ok;
 validate(set_end) -> ok;
 validate(map_end) -> ok;
 
-validate(TypeData) ->
-    try validate(TypeData, []) catch
+validate({Type, Data}) ->
+    try validate(required, Type, Data, []) catch
         throw:{invalid, Path, _Type, Value} ->
             {error, {invalid, lists:reverse(Path), Value}}
     end.
 
-validate(TypeData, Path) ->
-    validate(required, TypeData, Path).
-
-validate(Req, {_Type, undefined}, _Path)
+validate(Req, _Type, undefined, _Path)
   when Req =:= optional orelse Req =:= undefined ->
     ok;
-validate(_Req, {{list, Type}, Data}, Path)
+validate(_Req, {list, Type}, Data, Path)
   when is_list(Data) ->
-    lists:foreach(fun (E) -> validate({Type, E}, Path) end, Data);
-validate(_Req, {{set, Type}, Data}, Path)
+    lists:foreach(fun (E) -> validate(required, Type, E, Path) end, Data);
+validate(_Req, {set, Type}, Data, Path)
   when is_list(Data) ->
-    lists:foreach(fun (E) -> validate({Type, E}, Path) end, (ordsets:to_list(Data)));
-validate(_Req, {{map, KType, VType}, Data}, Path)
+    _ = ordsets:is_set(Data) orelse throw({invalid, Path, Type, Data}),
+    lists:foreach(fun (E) -> validate(required, Type, E, Path) end, ordsets:to_list(Data));
+validate(_Req, {map, KType, VType}, Data, Path)
   when is_map(Data) ->
-    maps:fold(fun (K, V, _) -> validate({KType, K}, Path), validate({VType, V}, Path), ok end, ok, Data);
-validate(Req, {{struct, union, {Mod, Name}}, Data = {_, _}}, Path) ->
-    validate(Req, {Mod:struct_info(Name), Data}, Path);
-validate(_Req, {{struct, union, StructDef} = Type, Data = {Name, Value}}, Path)
+    maps:fold(fun (K, V, _) ->
+        validate(required, KType, K, Path),
+        validate(required, VType, V, Path),
+        ok
+    end, ok, Data);
+validate(Req, {struct, union, {Mod, Name}}, Data = {_, _}, Path) ->
+    validate(Req, Mod:struct_info(Name), Data, Path);
+validate(_Req, {struct, union, StructDef} = Type, Data = {Name, Value}, Path)
   when is_list(StructDef) andalso is_atom(Name) ->
     case lists:keyfind(Name, 4, StructDef) of
         {_, _, SubType, Name, _Default} ->
-            validate(required, {SubType, Value}, [Name | Path]);
+            validate(required, SubType, Value, [Name | Path]);
         false ->
             throw({invalid, Path, Type, Data})
     end;
-validate(Req, {{struct, _Flavour, {Mod, Name} = Type}, Data}, Path)
+validate(Req, {struct, _Flavour, {Mod, Name} = Type}, Data, Path)
   when is_tuple(Data) ->
     try Mod:record_name(Name) of
       RName when RName =:= element(1, Data) ->
-        validate(Req, {Mod:struct_info(Name), Data}, Path);
+        validate(Req, Mod:struct_info(Name), Data, Path);
       _ ->
         throw({invalid, Path, Type, Data})
     catch error:badarg ->
         throw({invalid, Path, Type, Data})
     end;
-validate(_Req, {{struct, _Flavour, StructDef}, Data}, Path)
+validate(_Req, {struct, _Flavour, StructDef}, Data, Path)
   when is_list(StructDef) andalso tuple_size(Data) =:= length(StructDef) + 1 ->
-    [_ | Elems] = tuple_to_list(Data),
-    validate_struct_fields(StructDef, Elems, Path);
-validate(_Req, {{struct, _Flavour, StructDef}, Data}, Path)
+    validate_struct_fields(StructDef, Data, 2, Path);
+validate(_Req, {struct, _Flavour, StructDef}, Data, Path)
   when is_list(StructDef) andalso tuple_size(Data) =:= length(StructDef) ->
-    validate_struct_fields(StructDef, tuple_to_list(Data), Path);
-validate(_Req, {{enum, _Fields}, Value}, _Path) when is_atom(Value), Value =/= undefined ->
+    validate_struct_fields(StructDef, Data, 1, Path);
+validate(_Req, {enum, _Fields}, Value, _Path) when is_atom(Value), Value =/= undefined ->
     ok;
-validate(_Req, {string, Value}, _Path) when is_binary(Value) ->
+validate(_Req, string, Value, _Path) when is_binary(Value) ->
     ok;
-validate(_Req, {bool, Value}, _Path) when is_boolean(Value) ->
+validate(_Req, bool, Value, _Path) when is_boolean(Value) ->
     ok;
-validate(_Req, {byte, Value}, _Path)
+validate(_Req, byte, Value, _Path)
   when is_integer(Value), Value >= -(1 bsl 7), Value < (1 bsl 7) ->
     ok;
-validate(_Req, {i8,  Value}, _Path)
+validate(_Req, i8,  Value, _Path)
   when is_integer(Value), Value >= -(1 bsl 7), Value < (1 bsl 7) ->
     ok;
-validate(_Req, {i16, Value}, _Path)
+validate(_Req, i16, Value, _Path)
   when is_integer(Value), Value >= -(1 bsl 15), Value < (1 bsl 15) ->
     ok;
-validate(_Req, {i32, Value}, _Path)
+validate(_Req, i32, Value, _Path)
   when is_integer(Value), Value >= -(1 bsl 31), Value < (1 bsl 31) ->
     ok;
-validate(_Req, {i64, Value}, _Path)
+validate(_Req, i64, Value, _Path)
   when is_integer(Value), Value >= -(1 bsl 63), Value < (1 bsl 63) ->
     ok;
-validate(_Req, {double, Value}, _Path) when is_float(Value) ->
+validate(_Req, double, Value, _Path) when is_float(Value) ->
     ok;
-validate(_Req, {Type, Value}, Path) ->
+validate(_Req, Type, Value, Path) ->
     throw({invalid, Path, Type, Value}).
 
-validate_struct_fields(Types, Elems, Path) ->
-    lists:foreach(
-        fun ({{_, Req, Type, Name, _}, Data}) ->
-            validate(Req, {Type, Data}, [Name | Path])
-        end,
-        lists:zip(Types, Elems)
-    ).
+validate_struct_fields([{_, Req, Type, Name, _} | Types], Data, Idx, Path) ->
+    _ = validate(Req, Type, element(Idx, Data), [Name | Path]),
+    validate_struct_fields(Types, Data, Idx + 1, Path);
+validate_struct_fields([], _Data, _Idx, _Path) ->
+    ok.
