@@ -80,7 +80,8 @@ typeid_to_atom(?tType_STRING) -> string;
 typeid_to_atom(?tType_STRUCT) -> struct;
 typeid_to_atom(?tType_MAP) -> map;
 typeid_to_atom(?tType_SET) -> set;
-typeid_to_atom(?tType_LIST) -> list.
+typeid_to_atom(?tType_LIST) -> list;
+typeid_to_atom(TypeId) -> {unknown_type_id, TypeId}.
 
 term_to_typeid(void) -> ?tType_VOID;
 term_to_typeid(bool) -> ?tType_BOOL;
@@ -289,7 +290,10 @@ read_union_loop(<<?read_byte(FType), ?read_i16(Fid), IProto1/binary>>, StructDef
         _ ->
             IProto2 = skip_unknown_field(IProto1, Fid, FType),
             read_union_loop(IProto2, StructDef, Acc, Path)
-    end.
+    end;
+read_union_loop(Proto, StructDef, _Acc, Path) ->
+    throw({unexpected, Path, StructDef, Proto}).
+
 
 set_union_val(Name, Val, undefined) ->
     {Name, Val};
@@ -315,7 +319,9 @@ read_struct_loop(<<?read_byte(FType), ?read_i16(Fid), IProto1/binary>>, StructDe
         _ ->
             IProto2 = skip_unknown_field(IProto1, Fid, FType),
             read_struct_loop(IProto2, StructDef, Offset, Acc, Path)
-    end.
+    end;
+read_struct_loop(Proto, StructDef, _Offset, _Acc, Path) ->
+    throw({unexpected, Path, StructDef, Proto}).
 
 find_struct_field(Fid, [{Fid, _, Type, Name, _} | _], Idx) ->
     {Idx, Name, Type};
@@ -382,7 +388,10 @@ skip(Proto0, Type) when is_atom(Type) ->
     Proto1;
 
 skip(Proto0, Type) when is_integer(Type) ->
-    skip(Proto0, typeid_to_atom(Type)).
+    skip(Proto0, typeid_to_atom(Type));
+
+skip(Proto, Type) ->
+    throw({unexpected, Proto, Type, []}).
 
 skip_struct_loop(<<?read_byte(?tType_STOP), Proto1/binary>>) ->
     % {IProto2, ok} = read_frag(Proto1, struct_end),
