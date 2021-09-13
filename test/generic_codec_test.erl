@@ -71,6 +71,22 @@ error_test_() ->
     )
   ].
 
+bad_function_name_test_() ->
+  Service1 = {thrift_test_thrift, 'ThriftTest'},
+  Function1 = 'testString',
+  Args1 = {<<"blarg">>},
+  Service2 = {thrift_test_thrift, 'SecondService'},
+  [
+    ?_assertEqual(
+      {error, {bad_function_name, <<"testString">>}},
+      begin
+        B0 = ?CODEC:new(),
+        {ok, B1} = thrift_client_codec:write_function_call(B0, ?CODEC, Service1, Function1, Args1, ?SEQID),
+        thrift_processor_codec:read_function_call(B1, ?CODEC, Service2)
+      end
+    )
+  ].
+
 roundtrip(Service, Function, Args, Result) ->
   roundtrip(Service, call, Function, Args, Result).
 
