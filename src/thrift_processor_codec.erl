@@ -41,17 +41,30 @@ read_function_call(Buffer, Codec, Service) ->
                                      type = Type,
                                      seqid = SeqId},
              Buffer1} when Type =:= ?tMessageType_CALL; Type =:= ?tMessageType_ONEWAY ->
-                try erlang:binary_to_existing_atom(FName, latin1) of
-                    Function -> read_function_params(Buffer1, Codec, Service, Function, Type, SeqId)
-                catch
-                    error:badarg -> {error, {bad_function_name, FName}}
-                end;
+                read_function_call(Buffer1, Codec, Service, FName, Type, SeqId);
         {error, _} = Error ->
                 Error
     end.
 
-read_function_params(Buffer, Codec, Service, Function, IType, SeqId) ->
-    InParams = get_function_info(Service, Function, params_type),
+read_function_call(Buffer, Codec, Service, FName, IType, SeqId) ->
+    case get_function_params_info(Service, FName) of
+        {ok, Function, InParams} ->
+            read_function_params(Buffer, Codec, Function, InParams, IType, SeqId);
+        Error ->
+            Error
+    end.
+
+get_function_params_info(Service, FName) ->
+    try
+        Function = erlang:binary_to_existing_atom(FName, latin1),
+        InParams = get_function_info(Service, Function, params_type),
+        {ok, Function, InParams}
+    catch
+        error:badarg ->
+            {error, {bad_function_name, FName}}
+    end.
+
+read_function_params(Buffer, Codec, Function, InParams, IType, SeqId) ->
     Type = case IType of
         ?tMessageType_CALL   -> call;
         ?tMessageType_ONEWAY -> oneway
